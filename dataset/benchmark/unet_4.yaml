@@ -1,0 +1,20 @@
+unet:
+- {unet_layer1: 4}
+- {unet_layer2: 4}
+- {unet_layer3: 4}
+- {unet_layer4: 4}
+- {unet_layer5: 4}
+- {unet_layer6: 4}
+- {unet_layer7: 4}
+- {unet_layer8: 4}
+- {unet_layer9: 4}
+- {unet_layer10: 4}
+- {unet_layer11: 4}
+- {unet_layer12: 4}
+- {unet_layer13: 4}
+- {unet_layer14: 4}
+- {unet_layer15: 4}
+- {unet_layer16: 4}
+- {unet_layer17: 4}
+- {unet_layer18: 4}
+- {unet_layer19: 4}

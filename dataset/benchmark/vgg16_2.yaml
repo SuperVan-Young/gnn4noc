@@ -1,0 +1,17 @@
+vgg16:
+- {vgg16_layer1: 2}
+- {vgg16_layer2: 2}
+- {vgg16_layer3: 2}
+- {vgg16_layer4: 2}
+- {vgg16_layer5: 2}
+- {vgg16_layer6: 2}
+- {vgg16_layer7: 2}
+- {vgg16_layer8: 2}
+- {vgg16_layer9: 2}
+- {vgg16_layer10: 2}
+- {vgg16_layer11: 2}
+- {vgg16_layer12: 2}
+- {vgg16_layer13: 2}
+- {vgg16_layer14: 2}
+- {vgg16_layer15: 2}
+- {vgg16_layer16: 2}

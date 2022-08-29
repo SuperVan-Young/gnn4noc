@@ -1,0 +1,5 @@
+flappybird:
+- {flappybird_layer1: 8}
+- {flappybird_layer2: 8}
+- {flappybird_layer3: 8}
+- {flappybird_layer4: 8}
