@@ -1,4 +1,5 @@
 import os
+from pydoc import doc
 import networkx as nx
 import yaml
 from micro_op_graph import MicroOpGraph
@@ -17,6 +18,9 @@ class TraceAnalyzer():
         self.out_log_path = os.path.join(task_root, "out.log")
         self.spatial_spec_path = os.path.join(task_root, "spatial_spec")
         self.routing_board_path = os.path.join(task_root, "routing_board")
+
+        # very useful information
+        self.spec_info = self.get_spec_info()
         
 
     def get_op_graph(self):
@@ -78,25 +82,103 @@ class TraceAnalyzer():
         return int(parsed_line[0][2:].strip())
 
 
-    def get_routing_path(self):
-        """
-        Assuming determinsitic routing.
-        Return: pid -> [one-hop edges]
-        """
-        pass
-
-    def __parse_multicast_path(self):
-        """
-        """
-    
-
     def get_spec_info(self):
         """
         Return: {infos}
         """
-        
+        spec_info = dict()
 
-        pass
+        with open(self.spatial_spec_path, "r") as f:
+            for line in f:
+                line = line.split("//")[0]
+                line = line.strip('\n; ')
+                if len(line) == 0:
+                    continue
+                parsed = line.split(" = ")
+                assert len(parsed) == 2
+                spec_info[parsed[0]] = spec_info[parsed[1]]
+        
+        return spec_info
+
+
+    def get_multicast_routing_hops(self):
+        """
+        Assuming determinsitic routing.
+        Return: {pid -> [one-hop edges]}
+
+        You can tell if a packet is unicast once you get all multicast packets.
+        """
+        pid_to_edges = dict()
+        routing_function = self.__get_routing_function()
+
+        # multicast edges
+        with open(self.routing_board_path, "r") as f:
+            line = f.readline()
+            while len(line.strip("\n ")):
+                parsed_line = [int(x) for x in line.split(" ")]
+                pid = parsed_line[0]
+                
+                edges = []
+                line = f.readline()
+                while len(line.strip("\n ")):
+                    line = f.readline()
+                    u, v = [int(x) for x in line.split(" ")]
+                    edges += self.__parse_unicast_hops(u, v, routing_function)
+                    line = f.readline()
+
+                pid_to_edges[pid] = edges
+
+                f.readline()
+                line = f.readline()
+
+        return pid_to_edges
+
+
+
+    def __parse_unicast_hops(self, src, dst, routing_function):
+        """ (src, dst) -> [one-hop edges]
+        """
+        edges = []
+
+        k = self.__get_array_size()
+        # order: (x, y)
+        c2pt = lambda cid: (cid // k, cid % k)
+        pt2c = lambda x, y: x * k + y
+
+        x0, y0 = c2pt(src)
+        x1, y1 = c2pt(dst)
+
+        if routing_function == "src_routing":
+            cur = src
+            midpoints = []
+
+            # first go along x
+            if x1 >= x0:
+                midpoints += [pt2c(x0 + i + 1, y0) for i in range(x1 - x0)]
+            else:
+                midpoints += [pt2c(x0 - i - 1, y0) for i in range(x0 - x1)]
+            
+            # then go along y
+            if y1 >= y0:
+                midpoints += [pt2c(x1, y0 + i + 1) for i in range(y1 - y0)]
+            else:
+                midpoints += [pt2c(x1, y0 - i - 1) for i in range(y0 - y1)]
+            
+            for c in midpoints:
+                edges.append((cur, c))
+                cur = c
+        else:
+            raise NotImplementedError
+
+        return edges
+
+
+    def __get_routing_function(self):
+        return self.spec_info["routing_function"]
+    
+    
+    def __get_array_size(self):
+        return self.spec_info["k"]
 
     
     def __parse_instr(self, line):
