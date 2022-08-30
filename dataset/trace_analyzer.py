@@ -1,5 +1,6 @@
 import os
 from pydoc import doc
+import re
 import networkx as nx
 import yaml
 from micro_op_graph import MicroOpGraph
@@ -238,3 +239,14 @@ class TraceAnalyzer():
             if ret["type"] == "NI.send":
                 ret["dst"] = [int(d) for d in parsed_instr[2:]]
         return ret
+
+    
+    def get_num_layer(self):
+        def get_layer(name):
+            name = re.search("layer\d", name).group()
+            name = re.search("\d", name).group()
+            return int(name)
+        
+        G = self.graph.get_graph()
+        layers = {get_layer(name) for _, name in G.nodes(data="layer")}
+        return max(layers)
