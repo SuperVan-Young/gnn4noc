@@ -23,18 +23,30 @@ tasks = {
     "wide_resnet50_2": 64,
 }
 
-cores = [2, 4, 6, 8]
+# treat different scale of network differently
+cores = {
+    "alexnet": [2, 4, 6, 8],
+    "bert": [4, 6, 8, 10],
+    "bert-large": [4, 6, 8, 10],
+    "flappybird": [2, 4, 6, 8],
+    "inception": [4, 6, 8, 10],
+    "mnasnet": [4, 6, 8, 10],
+    "mobilenet_v3_large": [4, 6, 8, 10],
+    "mobilenet_v3_small": [2, 4, 6, 8],
+    "resnet50": [4, 6, 8, 10],
+    "resnext50_32x4d": [4, 6, 8, 10],
+    "ssd_r34": [2, 4, 6, 8],
+    "unet": [2, 4, 6, 8],
+    "vgg16": [2, 4, 6, 8],
+    "wide_resnet50_2": [4, 6, 8, 10],
+}
 
-for num_cores in cores:
-    for task, num_layers in tasks.items():
+
+for task, num_layers in tasks.items():
+    for num_cores in cores[task]:
         layers = [{f"{task}_layer{i}": num_cores} for i in range(1, num_layers+1)]
-        data = {task: layers}
+        data = {f"{task}_{num_cores}": layers}
 
         benchmark_path = os.path.join(benchmark_root, f"{task}_{num_cores}.yaml")
         with open(benchmark_path, "w") as f:
             yaml.dump(data, f)
-
-# debug
-with open(os.path.join(benchmark_root,"alexnet_2.yaml"), "r") as f:
-    data = yaml.load(f)
-    print(data)

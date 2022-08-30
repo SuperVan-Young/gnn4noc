@@ -1,9 +1,0 @@
-alexnet:
-- {alexnet_layer1: 8}
-- {alexnet_layer2: 8}
-- {alexnet_layer3: 8}
-- {alexnet_layer4: 8}
-- {alexnet_layer5: 8}
-- {alexnet_layer6: 8}
-- {alexnet_layer7: 8}
-- {alexnet_layer8: 8}

@@ -1,25 +1,28 @@
 #!/bin/bash
 cnt=0
 
-FOCUS=/home/xuechenhao/focus_scheduler/focus.py
+FOCUS=/home/xuechenhao/focus_scheduler/focus.py  # change to your root
 BENCHMARK=/home/xuechenhao/gnn4noc/dataset/benchmark
-tasks=$(ls ../benchmark)
 
-cd /home/xuechenhao/focus_scheduler
-pwd
-
-python ${FOCUS} -bm ${BENCHMARK}/alexnet_2.yaml -d 4 -b 1 -fr 1024-1024-1024 ds &
-wait
-
-for task in tasks
+for task in $(ls ../benchmark)
 do
+    # at most 8 tasks run parallelly
     if [ $cnt -eq 8 ] ; then
         wait
         cnt=0
-        echo "************************"
     fi
 
-    # put your command here
+    TASK_ROOT=/home/xuechenhao/gnn4noc/dataset/sim_result/"${task%.yaml}"_b1w1024_8x8
+    num=`ls ${TASK_ROOT} -l | grep "^-" | wc -l`
 
-    cnt=$(($cnt+1))
+    if [ $num -le 3 ] ; then
+
+        echo ${task}
+        # to run timeloop, use mode "ted"
+        # to run simulation, use mode "sd"    
+        python ${FOCUS} -bm ${BENCHMARK}/${task} -d 8 -b 1 -fr 1024-1024-1024 ted &
+
+        cnt=$(($cnt+1))
+
+    fi
 done
