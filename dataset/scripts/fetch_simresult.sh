@@ -16,15 +16,17 @@ do
 
     if ! [ -e $TASK_ROOT ]
     then
-        echo $task
         mkdir $TASK_ROOT
     fi
 
     op_graph=op_graph_${task}.gpickle
-    cp ${OP_GRAPH_ROOT}/${op_graph} ${TASK_ROOT}/op_graph.gpickle
+    cp ${OP_GRAPH_ROOT}/${op_graph} ${TASK_ROOT}/op_graph.gpickle >/dev/null 2>&1
 
-    cp ${SIMULATOR_TASK_ROOT}/out.log ${TASK_ROOT}/out.log
-    cp ${SIMULATOR_TASK_ROOT}/routing_board ${TASK_ROOT}/routing_board
-    cp ${SIMULATOR_TASK_ROOT}/spatial_spec ${TASK_ROOT}/spatial_spec
+    cp ${SIMULATOR_TASK_ROOT}/out.log ${TASK_ROOT}/out.log >/dev/null 2>&1
+    cp ${SIMULATOR_TASK_ROOT}/routing_board ${TASK_ROOT}/routing_board >/dev/null 2>&1
+    cp ${SIMULATOR_TASK_ROOT}/spatial_spec ${TASK_ROOT}/spatial_spec >/dev/null 2>&1
+
+    num=`ls ${TASK_ROOT} -l | grep "^-" | wc -l`
+    echo "$task $num"
 
 done

@@ -5,6 +5,9 @@ import yaml
 dataset_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 benchmark_root = os.path.join(dataset_root, "benchmark")
 
+if not os.path.exists(benchmark_root):
+    os.mkdir(benchmark_root)
+
 # task: available layers
 tasks = {
     "alexnet": 8,
