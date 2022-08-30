@@ -19,16 +19,35 @@ class TraceAnalyzer():
         self.spatial_spec_path = os.path.join(task_root, "spatial_spec")
         self.routing_board_path = os.path.join(task_root, "routing_board")
 
-        # very useful information
-        self.spec_info = self.get_spec_info()
-        
+        self.graph = None
+        self.__initialize_graph()
 
-    def get_op_graph(self):
-        graph = nx.read_gpickle(self.op_graph_path)
-        return graph
+        self.spec_info = None
+        self.__initialize_spec_info()
+
+        self.multicast_routing = None
+        self.__initialize_multicast()
+
+    
+    def __initialize_graph(self):
+        """ Read graph and annotate pkts onto each edge
+        """
+        self.graph = nx.read_gpickle(self.op_graph_path)
+        G = self.graph.get_graph()
+
+        for u, v, eattr in G.edges(data=True):
+            eattr["pkt"] = []
+
+        for key, val in self.__get_packet_latency().items():
+            pid, dst = key
+            src, start_cycle, end_cycle = val
+            G.edges[src, dst]["pkt"][pid] = {
+                "start_cycle": start_cycle,
+                "end_cycle": end_cycle
+            }
 
 
-    def get_packet_latency(self):
+    def __get_packet_latency(self):
         """ (pid, dst) -> {src, start_cycle, end_cycle}
         """
         pid_to_latency = dict()
@@ -58,6 +77,22 @@ class TraceAnalyzer():
         return pid_to_latency
 
 
+    def get_src_pkts(self, src):
+        """Return: {pid: [dsts]}
+        """
+        G = self.graph.get_graph()
+        pid_to_dsts = dict()
+        
+        for v, eattr in G.out_edges(src, data=True):
+            pkts = list(eattr["pkt"].keys())
+            for pid in pkts:
+                if pid not in pid_to_dsts.keys():
+                    pid_to_dsts[pid] = []
+                pid_to_dsts[pid].append(v)
+        
+        return pid_to_dsts
+
+
     def get_total_latency(self):
         line = None
 
@@ -82,11 +117,11 @@ class TraceAnalyzer():
         return int(parsed_line[0][2:].strip())
 
 
-    def get_spec_info(self):
+    def __initialize_spec_info(self):
         """
         Return: {infos}
         """
-        spec_info = dict()
+        self.spec_info = dict()
 
         with open(self.spatial_spec_path, "r") as f:
             for line in f:
@@ -96,12 +131,10 @@ class TraceAnalyzer():
                     continue
                 parsed = line.split(" = ")
                 assert len(parsed) == 2
-                spec_info[parsed[0]] = spec_info[parsed[1]]
-        
-        return spec_info
+                self.spec_info[parsed[0]] = self.spec_info[parsed[1]]
 
 
-    def get_multicast_routing_hops(self):
+    def __initialize_multicast(self):
         """
         Assuming determinsitic routing.
         Return: {pid -> [one-hop edges]}
@@ -131,8 +164,15 @@ class TraceAnalyzer():
                 f.readline()
                 line = f.readline()
 
-        return pid_to_edges
+        self.multicast_routing = pid_to_edges
 
+    
+    def get_routing_hops(self, src, dst, pid):
+        if pid in self.multicast_routing.keys():
+            return self.multicast_routing[pid]
+        else:
+            routing_func = self.__get_routing_function()
+            return self.__parse_unicast_hops(src, dst, routing_func)
 
 
     def __parse_unicast_hops(self, src, dst, routing_function):
