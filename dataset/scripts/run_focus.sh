@@ -24,7 +24,7 @@ do
 
         cnt=$(($cnt+1))
 
-    elif [ $num -lt 4 ] ; then
+    elif [ $num -le 4 ] ; then
 
         echo ${task}
         # to run timeloop, use mode "ted"

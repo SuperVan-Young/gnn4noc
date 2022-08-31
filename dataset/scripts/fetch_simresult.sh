@@ -20,11 +20,11 @@ do
     fi
 
     op_graph=op_graph_${task}.gpickle
-    cp ${OP_GRAPH_ROOT}/${op_graph} ${TASK_ROOT}/op_graph.gpickle >/dev/null 2>&1
+    cp ${OP_GRAPH_ROOT}/${op_graph} ${TASK_ROOT}/op_graph.gpickle
 
-    cp ${SIMULATOR_TASK_ROOT}/out.log ${TASK_ROOT}/out.log >/dev/null 2>&1
-    cp ${SIMULATOR_TASK_ROOT}/routing_board ${TASK_ROOT}/routing_board >/dev/null 2>&1
-    cp ${SIMULATOR_TASK_ROOT}/spatial_spec ${TASK_ROOT}/spatial_spec >/dev/null 2>&1
+    cp ${SIMULATOR_TASK_ROOT}/out.log ${TASK_ROOT}/out.log
+    cp ${SIMULATOR_TASK_ROOT}/routing_board ${TASK_ROOT}/routing_board
+    cp ${SIMULATOR_TASK_ROOT}/spatial_spec ${TASK_ROOT}/spatial_spec
 
     num=`ls ${TASK_ROOT} -l | grep "^-" | wc -l`
     echo "$task $num"

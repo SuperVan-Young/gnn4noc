@@ -3,7 +3,7 @@ from pydoc import doc
 import re
 import networkx as nx
 import yaml
-from micro_op_graph import MicroOpGraph
+from compiler.op_graph.micro_op_graph import MicroOpGraph
 
 class TraceAnalyzer():
     """Analyze simresult to get some useful intermediate information
@@ -20,7 +20,7 @@ class TraceAnalyzer():
         self.spatial_spec_path = os.path.join(task_root, "spatial_spec")
         self.routing_board_path = os.path.join(task_root, "routing_board")
 
-        self.graph = None
+        self.graph = nx.read_gpickle(self.op_graph_path)
         self.__initialize_graph()
 
         self.spec_info = None
@@ -28,24 +28,6 @@ class TraceAnalyzer():
 
         self.multicast_routing = None
         self.__initialize_multicast()
-
-    
-    def __initialize_graph(self):
-        """ Read graph and annotate pkts onto each edge
-        """
-        self.graph = nx.read_gpickle(self.op_graph_path)
-        G = self.graph.get_graph()
-
-        for u, v, eattr in G.edges(data=True):
-            eattr["pkt"] = []
-
-        for key, val in self.__get_packet_latency().items():
-            pid, dst = key
-            src, start_cycle, end_cycle = val
-            G.edges[src, dst]["pkt"][pid] = {
-                "start_cycle": start_cycle,
-                "end_cycle": end_cycle
-            }
 
 
     def __get_packet_latency(self):
@@ -76,6 +58,47 @@ class TraceAnalyzer():
                     pass
         
         return pid_to_latency
+
+    
+    def __initialize_graph(self):
+        """Use spatial_sim to mark each flow's packets
+        """
+
+        # copied from toolchain's trace_generator
+        raw_latency = self.__get_packet_latency()
+        pkt_counter = 0
+
+        op_graph = self.graph.get_graph()
+
+        assert nx.is_directed_acyclic_graph(op_graph)
+        for _, __, eattr in op_graph.edges(data=True):
+            eattr["pkt"] = dict()
+
+        node2pe = lambda x: op_graph.nodes[x]["p_pe"]
+
+        for node in nx.topological_sort(op_graph):
+
+            nattr = op_graph.nodes[node]
+            iteraction_cnt = int(nattr["cnt"])
+
+            # propagate data to data edges
+            out_data_edges = [(u, v) for u, v, t in op_graph.out_edges(node, data="edge_type") if t == "data" and node2pe(u) != node2pe(v)]
+            for _ in range(iteraction_cnt):
+                flows = {op_graph.edges[e]["fid"] for e in out_data_edges}
+                fid_to_pid = {fid: pid for fid, pid in zip(flows, range(pkt_counter, pkt_counter + len(flows)))}
+                pkt_counter += len(flows)
+
+                for u, v in out_data_edges:
+                    fid = op_graph.edges[u, v]["fid"]
+                    pid = fid_to_pid[fid]
+                    op_graph.edges[u, v]["pkt"][pid] = raw_latency[(pid, node2pe(v))]
+
+            # propagate control signals
+            out_control_edges = [(u, v) for u, v, t in op_graph.out_edges(node, data="edge_type") if t == "control" and node2pe(u) != node2pe(v)]
+            for u, v in out_control_edges:
+                pid = pkt_counter
+                pkt_counter += 1
+                op_graph.edges[u, v]["pkt"][pid] = raw_latency[(pid, node2pe(v))]
 
 
     def get_src_pkts(self, src):
@@ -132,7 +155,7 @@ class TraceAnalyzer():
                     continue
                 parsed = line.split(" = ")
                 assert len(parsed) == 2
-                self.spec_info[parsed[0]] = self.spec_info[parsed[1]]
+                self.spec_info[parsed[0]] = parsed[1]
 
 
     def __initialize_multicast(self):
@@ -155,7 +178,6 @@ class TraceAnalyzer():
                 edges = []
                 line = f.readline()
                 while len(line.strip("\n ")):
-                    line = f.readline()
                     u, v = [int(x) for x in line.split(" ")]
                     edges += self.__parse_unicast_hops(u, v, routing_function)
                     line = f.readline()
@@ -181,7 +203,7 @@ class TraceAnalyzer():
         """
         edges = []
 
-        k = self.__get_array_size()
+        k = int(self.get_array_size())
         # order: (x, y)
         c2pt = lambda cid: (cid // k, cid % k)
         pt2c = lambda x, y: x * k + y
@@ -218,8 +240,8 @@ class TraceAnalyzer():
         return self.spec_info["routing_function"]
     
     
-    def __get_array_size(self):
-        return self.spec_info["k"]
+    def get_array_size(self):
+        return int(self.spec_info["k"])
 
     
     def __parse_instr(self, line):
@@ -250,3 +272,8 @@ class TraceAnalyzer():
         G = self.graph.get_graph()
         layers = {get_layer(name) for _, name in G.nodes(data="layer")}
         return max(layers)
+
+    
+    def get_layers(self):
+        G = self.graph.get_graph()
+        return {name for _, name in G.nodes(data="layer")}

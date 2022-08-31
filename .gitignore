@@ -1,4 +1,6 @@
 intro
+*__pycache__*
 dataset/sim_result
 dataset/benchmark
+dataset/data
 test.ipynb

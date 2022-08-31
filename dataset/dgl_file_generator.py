@@ -1,7 +1,6 @@
+import pickle
 import os
-from trace import Trace
 import networkx as nx
-import dgl
 
 from trace_analyzer import TraceAnalyzer
 
@@ -12,14 +11,12 @@ if not os.path.exists(os.path.join(dataset_root, "data")):
 class DGLFileGenerator:
     """Generate DGL files for training"""
 
-    def __init__(self, array_size):
-        self.array_size = array_size
 
-    def __create_empty_array(self):
+    def __create_empty_array(self, array_size):
         """Create an empty core array for mapping
         """
         core_array = nx.MultiDiGraph()
-        core_array.add_nodes_from(range(self.array_size*self.array_size))
+        core_array.add_nodes_from(range(array_size**2))
 
         for u, nattr in core_array.nodes(data=True):
             core_array.nodes[u]["delay"] = 0
@@ -38,7 +35,7 @@ class DGLFileGenerator:
         assert len(nodes) > 0
         H = G.subgraph(nodes)
         
-        core_array = self.__create_empty_array()
+        core_array = self.__create_empty_array(trace_analyzer.get_array_size())
 
         for u, v, eattr in H.edges(data=True):
             # We use max pid's information only
@@ -54,9 +51,9 @@ class DGLFileGenerator:
             p_pe = H.nodes[u]["p_pe"]
             core_array.nodes[p_pe]["delay"] = H.nodes[u]["delay"]
 
-            routing_hops = trace_analyzer.get_routing_hops()
+            routing_hops = trace_analyzer.get_routing_hops(H.nodes[u]["p_pe"], H.nodes[v]["p_pe"], pid)
             for s, d in routing_hops:
-                core_array.edges[s, d, pid] = pkt_info
+                core_array.add_edge(s, d, pid, **pkt_info)
 
         return core_array
 
@@ -76,12 +73,19 @@ class DGLFileGenerator:
         H = nx.DiGraph()
         H.add_nodes_from(core_array.nodes(data=True))
 
-        for u, v, data in core_array.edges(data=True, keys=False):
-            H[u][v] = agg_func(data)
+        agg_info = dict()
+        for u, v, pid, data in core_array.edges(data=True, keys=True):
+            if (u, v) not in agg_info.keys():
+                agg_info[(u, v)] = []
+            agg_info[(u, v)].append(data)
+        
+        for edge, info in agg_info.items():
+            u, v = edge
+            H.add_edge(u, v, **agg_func(info))
 
         # use induced subgraph to simplify
         nodes = [n for n, d in H.degree() if d > 0]
-        H = H.subgraph(nodes)
+        H = H.subgraph(nodes).copy()
 
         return H
 
@@ -91,11 +95,10 @@ class DGLFileGenerator:
         Category could be train, val or test.
         """
         assert category in ["train", "val", "test"]
+        save_path = os.path.join(dataset_root, "data", category, f"{layer}.gpickle")
         
-        g = dgl.from_networkx(core_array, node_attrs=["delay"], edge_attrs=["size", "cnt", "route"])
-        save_path = os.path.join(dataset_root, "data", category, f"{layer}.dgl")
-        
-        dgl.save_graphs(save_path)
+        with open(save_path, "wb+") as f:
+            pickle.dump(core_array, f)
 
 
 
