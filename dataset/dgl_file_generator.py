@@ -90,12 +90,10 @@ class DGLFileGenerator:
         return H
 
 
-    def dump_graph(self, core_array:nx.DiGraph, layer:str, category:str):
+    def dump_graph(self, core_array:nx.DiGraph, layer:str):
         """Dump dgl file to target directory.
-        Category could be train, val or test.
         """
-        assert category in ["train", "val", "test"]
-        save_path = os.path.join(dataset_root, "data", category, f"{layer}.gpickle")
+        save_path = os.path.join(dataset_root, "data", f"{layer}.gpickle")
         
         with open(save_path, "wb+") as f:
             pickle.dump(core_array, f)
