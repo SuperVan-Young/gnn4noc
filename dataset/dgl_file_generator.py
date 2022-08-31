@@ -9,7 +9,12 @@ if not os.path.exists(os.path.join(dataset_root, "data")):
     os.mkdir(os.path.join(dataset_root, "data"))
 
 class DGLFileGenerator:
-    """Generate DGL files for training"""
+    """Generate DGL files for training
+    
+    nattr: delay, in_latency, out_latency, op_type
+    eattr: size, cnt, route
+    
+    """
 
 
     def __create_empty_array(self, array_size):
@@ -20,6 +25,9 @@ class DGLFileGenerator:
 
         for u, nattr in core_array.nodes(data=True):
             core_array.nodes[u]["delay"] = 0
+            core_array.nodes[u]["in_latency"] = 0
+            core_array.nodes[u]["out_latency"] = 0
+            core_array.nodes[u]["op_type"] = [0, 0, 0, 0] # wsrc, insrc, worker, sink
 
         return core_array
 
@@ -38,22 +46,53 @@ class DGLFileGenerator:
         core_array = self.__create_empty_array(trace_analyzer.get_array_size())
 
         for u, v, eattr in H.edges(data=True):
+            # add edge information
             # We use max pid's information only
             if len(eattr["pkt"].keys()) == 0:
                 continue
             pid = max(eattr["pkt"].keys())
             pkt_info = eattr["pkt"][pid]
-            # add more information about flit and cnt
             pkt_info["flit"] = eattr["size"]
             pkt_info["cnt"] = H.nodes[u]["cnt"]
-
-            # add delay information for computation nodes
-            p_pe = H.nodes[u]["p_pe"]
-            core_array.nodes[p_pe]["delay"] = H.nodes[u]["delay"]
 
             routing_hops = trace_analyzer.get_routing_hops(H.nodes[u]["p_pe"], H.nodes[v]["p_pe"], pid)
             for s, d in routing_hops:
                 core_array.add_edge(s, d, pid, **pkt_info)
+
+            # add delay information for computation nodes
+            u_pe = H.nodes[u]["p_pe"]
+            v_pe = H.nodes[v]["p_pe"]  # v doesn't mean virtual here
+            core_array.nodes[u_pe]["delay"] = H.nodes[u]["delay"]
+
+            # add packet latency to worker nodes
+            onehot_wsrc = [1, 0, 0, 0]
+            onehot_insrc = [0, 1, 0, 0]
+            onehot_worker = [0, 0, 1, 0]
+            onehot_sink = [0, 0, 0, 1]
+
+            in_type, out_type = H.nodes[u]["op_type"], H.nodes[v]["op_type"]
+            if out_type == "worker":
+                core_array.nodes[v_pe]["op_type"] = onehot_worker
+                if in_type == "wsrc":
+                    core_array.nodes[u_pe]["op_type"] = onehot_wsrc
+                elif in_type == "insrc":
+                    core_array.nodes[u_pe]["op_type"] = onehot_insrc
+                else:
+                    raise RuntimeError
+
+                in_edge = eattr["pkt"][pid]
+                core_array.nodes[v_pe]["in_latency"] = in_edge["end_cycle"] - in_edge["start_cycle"]
+            elif out_type == "sink":
+                core_array.nodes[v_pe]["op_type"] = onehot_sink
+                if in_type != "worker":
+                    raise RuntimeError
+                core_array.nodes[u_pe]["op_type"] = onehot_worker
+
+                out_edge = eattr["pkt"][pid]
+                core_array.nodes[u_pe]["out_latency"] = out_edge["end_cycle"] - out_edge["start_cycle"]
+            else:
+                raise RuntimeError
+
 
         return core_array
 

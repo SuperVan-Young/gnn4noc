@@ -20,7 +20,9 @@ class NoCDataset(DGLDataset):
         sample_path = os.path.join(self.data_root, self.samples[i])
         with open(sample_path, "r") as f:
             nx_graph = nx.read_gpickle(sample_path)
-        g = dgl.from_networkx(nx_graph, node_attrs=["delay"], edge_attrs=["size", "cnt", "route"])
+        g = dgl.from_networkx(nx_graph, 
+            node_attrs=["delay", "in_latency", "out_latency", "op_type"], 
+            edge_attrs=["size", "cnt", "route"])
         return g
     
 
