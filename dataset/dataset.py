@@ -13,7 +13,7 @@ class NoCDataset(DGLDataset):
     def process(self):
         self.data_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
         assert os.path.exists(self.data_root)
-        self.samples = (file for _, _, file in os.walk(self.data_root))
+        self.samples = [file for _, _, file in os.walk(self.data_root)][0]
 
 
     def __getitem__(self, i):
@@ -28,3 +28,9 @@ class NoCDataset(DGLDataset):
 
     def __len__(self):
         return len(self.samples)
+
+
+if __name__ == "__main__":
+    dataset = NoCDataset()
+    for i, g in enumerate(dataset):
+        print(g)

@@ -11,8 +11,9 @@ if not os.path.exists(os.path.join(dataset_root, "data")):
 class DGLFileGenerator:
     """Generate DGL files for training
     
-    nattr: delay, in_latency, out_latency, op_type
+    nattr: delay, op_type
     eattr: size, cnt, route
+    labels: in_latency, out_latency (saved in nattr)
     
     """
 
