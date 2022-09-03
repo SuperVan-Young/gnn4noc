@@ -1,8 +1,6 @@
 from curses import raw
 import os
-import torch
 import pickle as pkl
-import dgl
 from dgl.data import DGLDataset
 
 class NoCDataset(DGLDataset):
@@ -21,49 +19,17 @@ class NoCDataset(DGLDataset):
     def __getitem__(self, i):
         """Returns: 
         graph: dgl.HeteroGraph
-        graph_info: Tensor(4,)
         congestion: Tensor(2,)
         """
         sample_path = os.path.join(self.data_root, self.samples[i])
         with open(sample_path, "r") as f:
-            raw_data = pkl.load(sample_path, f)
+            graph, congestion = pkl.load(sample_path, f)
 
-        # build heterograph
-        graph_data = {
-            ('packet', 'pass', 'router'): self.__parse_edges(raw_data['packet_to_router']),
-            ('router', 'connect', 'router'): self.__parse_edges(raw_data['router_to_router']),
-        }
-        g = dgl.heterograph(graph_data)
-
-        # normalize cnt & delay
-        cnt = raw_data['cnt']
-        cnt_tensor = torch.tensor([cnt['wsrc'], cnt['insrc'], cnt['worker']]) / min([v for v in cnt.values()])
-        delay = raw_data['delay']
-        delay_tensor = torch.tensor(min([v for v in delay.values()]))
-        graph_info = torch.concat(cnt_tensor, delay_tensor)
-
-        # build congestion tensor
-        congestion = torch.tensor([raw_data["w_congestion"], raw_data['in_congestion']])
-
-        return g, graph_info, congestion
+        return graph, congestion
     
 
     def __len__(self):
         return len(self.samples)
-        
-
-    def __parse_edges(self, edges):
-        """ Parse dict of edge lists.
-        Return: source node tensor, dest node tensor
-        """
-        src, dst = [], []
-        for s, l in edges.items():
-            for d in l:
-                src.append(s)
-                dst.append(d)
-
-        return torch.tensor(src), torch.tensor(dst)
-
 
 
 if __name__ == "__main__":
