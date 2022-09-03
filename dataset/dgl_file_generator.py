@@ -1,5 +1,7 @@
 import pickle
 import os
+import numpy as np
+from scipy import stats
 import networkx as nx
 
 from trace_analyzer import TraceAnalyzer
@@ -8,136 +10,149 @@ dataset_root = os.path.dirname(os.path.abspath(__file__))
 if not os.path.exists(os.path.join(dataset_root, "data")):
     os.mkdir(os.path.join(dataset_root, "data"))
 
-class DGLFileGenerator:
-    """Generate DGL files for training
-    
-    nattr: delay, op_type
-    eattr: size, cnt, route
-    labels: in_latency, out_latency (saved in nattr)
-    
+
+from collections import UserDict
+class SmartDict(UserDict):
+    """Automatically record new key's ID incrementally from 0
     """
+    def __init__(self):
+        super().__init__()
+        self.cnt = 0
+
+    def __getitem__(self, x):
+        if x not in self.data.keys():
+            self.data[x] = self.cnt
+            self.cnt += 1
+        return self.data[x]
 
 
-    def __create_empty_array(self, array_size):
-        """Create an empty core array for mapping
+class DGLFileGenerator:
+    """Generate DGL files for training.
+    """
+    
+    def dump_data(self, trace_analyzer: TraceAnalyzer, layer:str, batch=0):
+        """Map packets of one tile to the Router array.
+        Dataset could rebuild a HeteroGraph from these information.
+
+        Return: {
+            packet_to_router
+            router_to_router
+            cnt
+            delay
+            congestion
+        }
         """
-        core_array = nx.MultiDiGraph()
-        core_array.add_nodes_from(range(array_size**2))
 
-        for u, nattr in core_array.nodes(data=True):
-            core_array.nodes[u]["delay"] = 0
-            core_array.nodes[u]["in_latency"] = 0
-            core_array.nodes[u]["out_latency"] = 0
-            core_array.nodes[u]["op_type"] = [0, 0, 0, 0] # wsrc, insrc, worker, sink
+        # store routing information
+        packet_to_router = dict()
+        router_to_router = dict()
 
-        return core_array
-
+        pkt2id = SmartDict()
+        rt2id = SmartDict()
         
-    def map_pe_array(self, trace_analyzer:TraceAnalyzer, layer:str, batch=0):
-        """ Dump a multi-graph of #layer from trace analyzer.
-        Layer should be a string
-        Return: MultiDigraph of core array
-        """
         G = trace_analyzer.graph.get_graph()
-        nodes = [u for u, nattr in G.nodes(data=True) if nattr["layer"] == layer
-            and nattr["batch"] == batch]
-        assert len(nodes) > 0
+        nodes = [n for n, attr in G.nodes(data=True)
+            if attr["layer"] == layer
+            and attr["batch"] == batch]
         H = G.subgraph(nodes)
-        
-        core_array = self.__create_empty_array(trace_analyzer.get_array_size())
 
         for u, v, eattr in H.edges(data=True):
-            # add edge information
-            # We use max pid's information only
-            if len(eattr["pkt"].keys()) == 0:
-                continue
-            pid = max(eattr["pkt"].keys())
-            pkt_info = eattr["pkt"][pid]
-            pkt_info["flit"] = eattr["size"]
-            pkt_info["cnt"] = H.nodes[u]["cnt"]
+            pkt = eattr["pkt"].keys()[0]
+            routing = trace_analyzer.get_routing_hops(u, v, pkt)
 
-            routing_hops = trace_analyzer.get_routing_hops(H.nodes[u]["p_pe"], H.nodes[v]["p_pe"], pid)
-            for s, d in routing_hops:
-                core_array.add_edge(s, d, pid, **pkt_info)
+            pid = pkt2id[pkt]
+            packet_to_router[pid] = [rt2id[H.nodes[u]['p_pe']]]  # add routing start
 
-            # add delay information for computation nodes
-            u_pe = H.nodes[u]["p_pe"]
-            v_pe = H.nodes[v]["p_pe"]  # v doesn't mean virtual here
-            core_array.nodes[u_pe]["delay"] = H.nodes[u]["delay"]
+            for s, e in routing:
+                sid, eid = rt2id[s], rt2id[e]
+                packet_to_router[pid] = eid  # add routing end of every hop
 
-            # add packet latency to worker nodes
-            onehot_wsrc = [1, 0, 0, 0]
-            onehot_insrc = [0, 1, 0, 0]
-            onehot_worker = [0, 0, 1, 0]
-            onehot_sink = [0, 0, 0, 1]
+                # for every hop, add physical channel connection
+                if sid not in router_to_router.keys():
+                    router_to_router[sid] = []
+                if eid not in router_to_router[sid]:
+                    router_to_router[sid].append(eid)
 
-            in_type, out_type = H.nodes[u]["op_type"], H.nodes[v]["op_type"]
-            if out_type == "worker":
-                core_array.nodes[v_pe]["op_type"] = onehot_worker
-                if in_type == "wsrc":
-                    core_array.nodes[u_pe]["op_type"] = onehot_wsrc
-                elif in_type == "insrc":
-                    core_array.nodes[u_pe]["op_type"] = onehot_insrc
-                else:
-                    raise RuntimeError
+        ########################################################################
 
-                in_edge = eattr["pkt"][pid]
-                core_array.nodes[v_pe]["in_latency"] = in_edge["end_cycle"] - in_edge["start_cycle"]
-            elif out_type == "sink":
-                core_array.nodes[v_pe]["op_type"] = onehot_sink
-                if in_type != "worker":
-                    raise RuntimeError
-                core_array.nodes[u_pe]["op_type"] = onehot_worker
+        # store delay & cnt
+        wsrc = [n for n, attr in G.nodes(data=True) if attr["op_type"] == "wsrc"]
+        assert len(wsrc) == 1
+        wsrc = wsrc[0]
+        insrc = [n for n, attr in G.nodes(data=True) if attr["op_type"] == "insrc"]
+        assert len(insrc) == 1
+        insrc = insrc[0]
+        workers = [n for n, attr in G.nodes(data=True) if attr["op_type"] == "worker"]
+        assert len(workers) > 0
 
-                out_edge = eattr["pkt"][pid]
-                core_array.nodes[u_pe]["out_latency"] = out_edge["end_cycle"] - out_edge["start_cycle"]
-            else:
-                raise RuntimeError
+        cnt = {
+            "wsrc": int(G.nodes[wsrc]["cnt"]),
+            "insrc": int(G.nodes[insrc]["cnt"]),
+            "worker": int(G.nodes[workers[0]]["cnt"]),
+        }
+        delay = {
+            "wsrc": int(G.nodes[wsrc]["delay"]),
+            "insrc": int(G.nodes[insrc]["delay"]),
+            "worker": int(G.nodes[workers[0]]["delay"]),
+        }  # actually you only need delay information
 
-
-        return core_array
-
-
-    def aggregate_information(self, core_array:nx.MultiDiGraph):
-        """Aggregate multiple edges into a single one
-        Return: Digraph of core array
-        """
-
-        def agg_func(edges):
-            eattr = dict()
-            eattr["size"] = sum([e["flit"] * e["cnt"] for e in edges])
-            eattr["cnt"] = sum([ e["cnt"] for e in edges])
-            eattr["route"] = len(edges)
-            return eattr
-
-        H = nx.DiGraph()
-        H.add_nodes_from(core_array.nodes(data=True))
-
-        agg_info = dict()
-        for u, v, pid, data in core_array.edges(data=True, keys=True):
-            if (u, v) not in agg_info.keys():
-                agg_info[(u, v)] = []
-            agg_info[(u, v)].append(data)
+        ########################################################################
         
-        for edge, info in agg_info.items():
-            u, v = edge
-            H.add_edge(u, v, **agg_func(info))
+        # store congestion
+        w_cnt = cnt['wsrc']
+        in_cnt = cnt['insrc']
+        w_start = [float("inf")] * w_cnt
+        w_end = [-float("inf")] * w_cnt
+        in_start = [float("inf")] * in_cnt
+        in_end = [-float("inf")] * in_cnt
 
-        # use induced subgraph to simplify
-        nodes = [n for n, d in H.degree() if d > 0]
-        H = H.subgraph(nodes).copy()
+        for w in workers:
+            w_edges = G.edges[wsrc, w]["pkt"]
+            w_pids = sorted(list(w_edges.keys()))
 
-        return H
+            in_edges = G.edges[insrc, w]["pkt"]
+            in_pids = sorted(list(in_edges.keys()))
 
+            for t in range(w_cnt):
+                w_pkt = w_edges[w_pids[t]]
+                w_start[t] = min(w_start[t], w_pkt["start_cycle"])
+                w_end[t] = max(w_end[t], w_pkt["end_cycle"])
 
-    def dump_graph(self, core_array:nx.DiGraph, layer:str):
-        """Dump dgl file to target directory.
-        """
-        save_path = os.path.join(dataset_root, "data", f"{layer}.gpickle")
+            for t in range(in_cnt):
+                in_pkt = in_edges[in_pids[t]]
+                in_start[t] = min(in_start[t], in_pkt["start_cycle"])
+                in_end[t] = max(in_end[t], in_pkt["end_cycle"])
+
+        # align different cnts
+        if w_cnt > in_cnt:
+            ratio = w_cnt // in_cnt
+            w_latency = {i: l[1]-l[0] for i, l in enumerate(zip(w_start, w_end))}
+            in_latency = {ratio*i: l[1]-l[0] for i, l in enumerate(zip(in_start, in_end))}
+        elif w_cnt < in_cnt:
+            ratio = in_cnt // w_cnt
+            w_latency = {ratio*i: l[1]-l[0] for i, l in enumerate(zip(w_start, w_end))}
+            in_latency = {i: l[1]-l[0] for i, l in enumerate(zip(in_start, in_end))}
+        else:
+            w_latency = {i: l[1]-l[0] for i, l in enumerate(zip(w_start, w_end))}
+            in_latency = {i: l[1]-l[0] for i, l in enumerate(zip(in_start, in_end))}
+
+        # Congestion is measured by a latency ratio.
+        w_x = np.array(list(w_latency.keys()))
+        w_y = np.array(list(w_latency.values()))
+        in_x = np.array(list(in_latency.keys()))
+        in_y = np.array(list(in_latency.values()))
         
-        with open(save_path, "wb+") as f:
-            pickle.dump(core_array, f)
+        # FIXME: We ignore cases when number of iteration is small
+        # ignore the first irregular data due to instr. flow
+        w_congestion = max(stats.linregress(w_x[1:], w_y[1:]).slope, 0) if len(w_x) > 4 else 0
+        in_congestion = max(stats.linregress(in_x[1:], in_y[1:]).slope, 0) if len(in_x) > 4 else 0
 
-
-
-        
+        ########################################################################
+        result = {
+            "packet_to_router": packet_to_router,
+            "router_to_router": router_to_router,
+            "cnt": cnt,
+            "delay": delay,
+            "w_congestion": w_congestion,
+            "in_congestion": in_congestion,
+        }
