@@ -3,6 +3,8 @@ import os
 import numpy as np
 from scipy import stats
 import networkx as nx
+import torch
+import dgl
 import pickle as pkl
 
 from trace_analyzer import TraceAnalyzer
@@ -18,13 +20,16 @@ class SmartDict(UserDict):
     """
     def __init__(self):
         super().__init__()
-        self.cnt = 0
+        self.__cnt = 0
 
     def __getitem__(self, x):
         if x not in self.data.keys():
-            self.data[x] = self.cnt
-            self.cnt += 1
+            self.data[x] = self.__cnt
+            self.__cnt += 1
         return self.data[x]
+
+    def __len__(self):
+        return self.__cnt
 
 
 class DGLFileGenerator:
@@ -32,24 +37,12 @@ class DGLFileGenerator:
     """
     
     def dump_data(self, trace_analyzer: TraceAnalyzer, layer:str, batch=0):
-        """Map packets of one tile to the Router array.
-        Dataset could rebuild a HeteroGraph from these information.
-
-        Return: {
-            packet_to_router: { pid: [rids] }
-            router_to_router: { rid: [rids] }
-            cnt: { op_type: cnt }
-            delay: { op_type: delay }
-            congestion: int
-        }
+        """Map packets of one tile to the Router array and dump the data.
+        Makes it easy to load for dataset.
+        Return: Tuple
+        - graph: dgl.heterograph
+        - congestion: tensor(2,)
         """
-
-        # store routing information
-        packet_to_router = dict()
-        router_to_router = dict()
-
-        pkt2id = SmartDict()
-        rt2id = SmartDict()
         
         G = trace_analyzer.graph.get_graph()
         nodes = [n for n, attr in G.nodes(data=True)
@@ -57,27 +50,125 @@ class DGLFileGenerator:
             and attr["batch"] == batch]
         G = G.subgraph(nodes)
 
+        graph, pkt2id, rt2id = self.__gen_hetero_graph(trace_analyzer, G)
+        graph.nodes['packet'].data['embed'] = self.__gen_hyper_nattr(G, pkt2id)
+        graph.nodes['router'].data['embed'] = self.__gen_nattr(G, rt2id)
+        congestion = self.__gen_congestion(G)
+
+        sample_path = f"{trace_analyzer.taskname}_{layer}.pkl"
+        with open(os.path.join(dataset_root, "data", sample_path), "wb") as f:
+            pkl.dump((graph, congestion), f)
+
+    
+    def __gen_hetero_graph(self, trace_analyzer:TraceAnalyzer, G):
+        """Generate heterograph given the subgraph.
+        Return: dgl.heterograph, pkt2id, rt2id
+        """
+        packet_to_router = dict()  # pid: rids
+        router_to_router = dict()  # rid: rids
+
+        pkt2id = SmartDict()
+        rt2id = SmartDict()
+
         for u, v, eattr in G.edges(data=True):
-            pkt = list(eattr["pkt"].keys())[0]  # a random pkt is fine
+            pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
             routing = trace_analyzer.get_routing_hops(u_pe, v_pe, pkt)
 
             pid = pkt2id[pkt]
-            packet_to_router[pid] = [rt2id[G.nodes[u]['p_pe']]]  # add routing start
+            rid_u = rt2id[u_pe]
+            packet_to_router[pid] = [rid_u]  # add routing start
 
             for s, e in routing:
-                sid, eid = rt2id[s], rt2id[e]
-                packet_to_router[pid] = eid  # add routing end of every hop
+                rid_s, rid_e = rt2id[s], rt2id[e]
+                packet_to_router[pid].append(rid_e)  # add every routing hop's end
 
                 # for every hop, add physical channel connection
-                if sid not in router_to_router.keys():
-                    router_to_router[sid] = []
-                if eid not in router_to_router[sid]:
-                    router_to_router[sid].append(eid)
+                if rid_s not in router_to_router.keys():
+                    router_to_router[rid_s] = []
+                if rid_e not in router_to_router[rid_s]:
+                    router_to_router[rid_s].append(rid_e)
 
-        ########################################################################
+        graph = dgl.heterograph({
+            ('packet', 'pass', 'router'): self.__parse_edges_dict(packet_to_router),
+            ('router', 'connect', 'router'): self.__parse_edges_dict(router_to_router),
+        })
 
-        # store delay & cnt
+        return graph, pkt2id, rt2id
+        
+
+    
+    def __parse_edge_dict(self, edges):
+        """ Parse dict of edge lists.
+        Return: source node tensor, dest node tensor
+        """
+        src, dst = [], []
+        for s, l in edges.items():
+            for d in l:
+                src.append(s)
+                dst.append(d)
+
+        return torch.tensor(src), torch.tensor(dst)
+        
+
+    
+    def __gen_nattr(self, G, rt2id):
+        """Generate router's attribute.
+        Return: Tensor(#Router, node_dim)
+        For now, node_dim = 6
+
+        Node attribute contains:
+        - frequency to send packet
+        - degree: 1 (updated in forwarding and backwarding)
+        - optype: one-hot representation
+        """
+
+        num_routers =  len(rt2id)
+        freq = torch.zeros(shape=(num_routers, 1))
+        degree = torch.ones(shape=(num_routers, 1))
+        op_type = torch.zeros(shape=(num_routers, 4))
+
+        cast_op_type = {
+            "wsrc": torch.tensor([1, 0, 0, 0]).unsqueeze(0),
+            "insrc": torch.tensor([0, 1, 0, 0]).unsqueeze(0),
+            "worker": torch.tensor([0, 0, 1, 0]).unsqueeze(0),
+            "sink": torch.tensor([0, 0, 0, 1]).unsqueeze(0),
+        }
+
+        for u, nattr in G.nodes(data=True):
+            u_pe = nattr['p_pe']
+            rid_u = rt2id[u_pe]
+            if 'delay' in nattr.keys():
+                freq[rid_u:rid_u+1, :] = 1 / nattr['delay']
+            op_type[rid_u:rid_u+1, :] = cast_op_type[nattr['op_type']]
+        
+        return torch.cat([freq, degree, op_type], dim=1)
+
+
+    def __gen_hyper_nattr(self, G, pkt2id):
+        """Generate packet's attribute.
+        Return: Tensor(#Packet, hyper_node_dim)
+        For now, hyper_node_dim = 1
+
+        Node attribute contains:
+        - flit
+        """
+        num_packets = len(pkt2id)
+        flit = torch.zeros(shape=(num_packets, 1))
+
+        for u, v, eattr in G.edges(data=True):
+            pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine
+            pid = pkt2id[pkt]
+            flit[pid:pid+1, :] = eattr['size']
+
+        return flit
+
+
+    def __gen_congestion(self, G):
+        """Calculate congestion ratio.
+        Return: Tensor(2,)
+        """
+
         wsrc = [n for n, attr in G.nodes(data=True) if attr["op_type"] == "wsrc"]
         assert len(wsrc) == 1
         wsrc = wsrc[0]
@@ -86,23 +177,9 @@ class DGLFileGenerator:
         insrc = insrc[0]
         workers = [n for n, attr in G.nodes(data=True) if attr["op_type"] == "worker"]
         assert len(workers) > 0
-
-        cnt = {
-            "wsrc": int(G.nodes[wsrc]["cnt"]),
-            "insrc": int(G.nodes[insrc]["cnt"]),
-            "worker": int(G.nodes[workers[0]]["cnt"]),
-        }
-        delay = {
-            "wsrc": int(G.nodes[wsrc]["delay"]),
-            "insrc": int(G.nodes[insrc]["delay"]),
-            "worker": int(G.nodes[workers[0]]["delay"]),
-        }  # actually you only need delay information
-
-        ########################################################################
-        
-        # store congestion
-        w_cnt = cnt['wsrc']
-        in_cnt = cnt['insrc']
+    
+        w_cnt = int(G.nodes[wsrc]["cnt"])
+        in_cnt = int(G.nodes[insrc]["cnt"])
         w_start = [float("inf")] * w_cnt
         w_end = [-float("inf")] * w_cnt
         in_start = [float("inf")] * in_cnt
@@ -149,16 +226,10 @@ class DGLFileGenerator:
         w_congestion = max(stats.linregress(w_x[1:], w_y[1:]).slope, 0) if len(w_x) > 4 else 0
         in_congestion = max(stats.linregress(in_x[1:], in_y[1:]).slope, 0) if len(in_x) > 4 else 0
 
-        ########################################################################
-        result = {
-            "packet_to_router": packet_to_router,
-            "router_to_router": router_to_router,
-            "cnt": cnt,
-            "delay": delay,
-            "w_congestion": w_congestion,
-            "in_congestion": in_congestion,
-        }
+        return torch.tensor([w_congestion, in_congestion])
 
-        dump_path = f"{trace_analyzer.taskname}_{layer}.pkl"
-        with open(os.path.join(dataset_root, "data", dump_path), "wb") as f:
-            pkl.dump(result, f)
+
+
+
+
+
