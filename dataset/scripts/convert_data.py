@@ -25,7 +25,5 @@ for root, dirs, files in os.walk(sim_result_root):
     dgl_generator = DGLFileGenerator()
 
     for layer in trace_analyzer.get_layers():
-        core_array = dgl_generator.map_pe_array(trace_analyzer, layer)
-        core_array = dgl_generator.aggregate_information(core_array)
-        dgl_generator.dump_graph(core_array, f"{taskname}_{layer}")
+        dgl_generator.dump_data(trace_analyzer, layer)
 

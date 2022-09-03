@@ -3,6 +3,7 @@ import os
 import numpy as np
 from scipy import stats
 import networkx as nx
+import pickle as pkl
 
 from trace_analyzer import TraceAnalyzer
 
@@ -35,11 +36,11 @@ class DGLFileGenerator:
         Dataset could rebuild a HeteroGraph from these information.
 
         Return: {
-            packet_to_router
-            router_to_router
-            cnt
-            delay
-            congestion
+            packet_to_router: { pid: [rids] }
+            router_to_router: { rid: [rids] }
+            cnt: { op_type: cnt }
+            delay: { op_type: delay }
+            congestion: int
         }
         """
 
@@ -54,14 +55,15 @@ class DGLFileGenerator:
         nodes = [n for n, attr in G.nodes(data=True)
             if attr["layer"] == layer
             and attr["batch"] == batch]
-        H = G.subgraph(nodes)
+        G = G.subgraph(nodes)
 
-        for u, v, eattr in H.edges(data=True):
-            pkt = eattr["pkt"].keys()[0]
-            routing = trace_analyzer.get_routing_hops(u, v, pkt)
+        for u, v, eattr in G.edges(data=True):
+            pkt = list(eattr["pkt"].keys())[0]  # a random pkt is fine
+            u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
+            routing = trace_analyzer.get_routing_hops(u_pe, v_pe, pkt)
 
             pid = pkt2id[pkt]
-            packet_to_router[pid] = [rt2id[H.nodes[u]['p_pe']]]  # add routing start
+            packet_to_router[pid] = [rt2id[G.nodes[u]['p_pe']]]  # add routing start
 
             for s, e in routing:
                 sid, eid = rt2id[s], rt2id[e]
@@ -156,3 +158,7 @@ class DGLFileGenerator:
             "w_congestion": w_congestion,
             "in_congestion": in_congestion,
         }
+
+        dump_path = f"{trace_analyzer.taskname}_{layer}.pkl"
+        with open(os.path.join(dataset_root, "data", dump_path), "wb") as f:
+            pkl.dump(result, f)
