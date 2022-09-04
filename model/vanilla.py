@@ -118,9 +118,11 @@ class VanillaModel(nn.Module):
         super().__init__()
         self.feature_gen = FeatureGen(h_dim, node_dim, hyper_node_dim)
         self.pass_mp = MessagePassing(h_dim, "pass")
-        # self.transfer_mp = MessagePassing(h_dim, "transfer")
-        self.connect_mp = MessagePassing(h_dim, "connect")
-        # self.bp_mp = MessagePassing(h_dim, "backpressure")
+        self.connect_mp_1 = MessagePassing(h_dim, "connect")
+        # self.connect_mp_2 = MessagePassing(h_dim, "connect")
+        self.bp_mp_1 = MessagePassing(h_dim, "backpressure")
+        # self.bp_mp_2 = MessagePassing(h_dim, "backpressure")
+        self.transfer_mp = MessagePassing(h_dim, "transfer")
         self.graph_embedding = GraphEmbedding()
         self.prediction_head = nn.Sequential(
             nn.Linear(2*h_dim, h_dim),
@@ -132,9 +134,9 @@ class VanillaModel(nn.Module):
     def forward(self, g):
         self.feature_gen(g)
         self.pass_mp(g)
-        self.connect_mp(g)
-        # self.bp_mp(g)
-        # self.transfer_mp(g)
+        self.connect_mp_1(g)
+        self.bp_mp_1(g)
+        self.transfer_mp(g)
         embed = self.graph_embedding(g)
         pred = self.prediction_head(embed)
         return pred
