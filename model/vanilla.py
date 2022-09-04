@@ -8,6 +8,7 @@ import dgl.function as fn
 
 class ResidualBlock(nn.Module):
     def __init__(self, h_dim, input_dim=None):
+        super().__init__()
         if input_dim == None:
             input_dim = h_dim
         self.mlp = nn.Sequential(
@@ -24,6 +25,7 @@ class FeatureGen(nn.Module):
     """Convert embedding feature dim into global hidden dim.
     """
     def __init__(self, h_dim, node_dim, hyper_node_dim):
+        super().__init__()
         self.node_lin = nn.Linear(node_dim, h_dim)
         self.hyper_lin = nn.Linear(hyper_node_dim, h_dim)
 
@@ -33,11 +35,11 @@ class FeatureGen(nn.Module):
     def forward(self, g:dgl.heterograph):
         node_embed = g.nodes["router"].data['embed']
         node_feat = self.node_lin(node_embed)
-        node_feat = self.node_MLP(node_feat)
+        node_feat = self.node_mlp(node_feat)
 
         hyper_node_embed = g.nodes['packet'].data['embed']
-        hyper_node_feat = self.hyper_node_MLP(hyper_node_embed)
-        hyper_node_feat = self.hyper_node_MLP(hyper_node_feat)
+        hyper_node_feat = self.hyper_lin(hyper_node_embed)
+        hyper_node_feat = self.hyper_mlp(hyper_node_feat)
 
         g.nodes['router'].data['feat'] = node_feat
         g.nodes['packet'].data['feat'] = hyper_node_feat
@@ -47,6 +49,7 @@ class MessagePassing(nn.Module):
     """Passing message through a paticular edge type.
     """
     def __init__(self, h_dim, etype):
+        super().__init__()
         self.mlp_m = ResidualBlock(h_dim)  # message
         self.lin_r = nn.Sequential(
             nn.Linear(4*h_dim, h_dim),
@@ -73,13 +76,16 @@ class MessagePassing(nn.Module):
         srcfeat = g.nodes[self.srctype].data['feat']
         g.nodes[self.srctype].data['h'] = self.mlp_m(srcfeat)
         g.multi_update_all(
-            {self.etype: (fn.copy_u('h', 'm'), fn.sum('m', 'h_sum'))}
+            {self.etype: (fn.copy_u('h', 'm'), fn.sum('m', 'h_sum'))},
+            "sum"
         )
         g.multi_update_all(
-            {self.etype: (fn.copy_u('h', 'm'), fn.max('m', 'h_max'))}
+            {self.etype: (fn.copy_u('h', 'm'), fn.max('m', 'h_max'))},
+            "sum"
         )
         g.multi_update_all(
-            {self.etype: (fn.copy_u('h', 'm'), fn.mean('m', 'h_mean'))}
+            {self.etype: (fn.copy_u('h', 'm'), fn.mean('m', 'h_mean'))},
+            "sum"
         )
         
         h_sum = g.nodes[self.dsttype].data['h_sum']
@@ -95,6 +101,9 @@ class GraphEmbedding(nn.Module):
     """Aggregate Graph level information.
     For simplicity, we use mean reduction.
     """
+    def __init__(self) -> None:
+        super().__init__()
+
     def forward(self, g):
         hyper_info = torch.mean(g.nodes['packet'].data['feat'], dim=0)
         node_info = torch.mean(g.nodes['router'].data['feat'], dim=0)
@@ -106,15 +115,17 @@ class VanillaModel(nn.Module):
     """
 
     def __init__(self, h_dim=64, node_dim=6, hyper_node_dim=1):
+        super().__init__()
         self.feature_gen = FeatureGen(h_dim, node_dim, hyper_node_dim)
         self.pass_mp = MessagePassing(h_dim, "pass")
-        self.transfer_mp = MessagePassing(h_dim, "transfer")
+        # self.transfer_mp = MessagePassing(h_dim, "transfer")
         self.connect_mp = MessagePassing(h_dim, "connect")
-        self.bp_mp = MessagePassing(h_dim, "backpressure")
+        # self.bp_mp = MessagePassing(h_dim, "backpressure")
         self.graph_embedding = GraphEmbedding()
         self.prediction_head = nn.Sequential(
-            nn.Linear(2*h_dim, 2),
+            nn.Linear(2*h_dim, h_dim),
             nn.ReLU(),
+            nn.Linear(h_dim, 2),
         )
 
     
@@ -122,8 +133,8 @@ class VanillaModel(nn.Module):
         self.feature_gen(g)
         self.pass_mp(g)
         self.connect_mp(g)
-        self.bp_mp(g)
-        self.transfer_mp(g)
+        # self.bp_mp(g)
+        # self.transfer_mp(g)
         embed = self.graph_embedding(g)
         pred = self.prediction_head(embed)
         return pred

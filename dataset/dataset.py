@@ -22,8 +22,8 @@ class NoCDataset(DGLDataset):
         congestion: Tensor(2,)
         """
         sample_path = os.path.join(self.data_root, self.samples[i])
-        with open(sample_path, "r") as f:
-            graph, congestion = pkl.load(sample_path, f)
+        with open(sample_path, "rb") as f:
+            graph, congestion = pkl.load(f)
 
         return graph, congestion
     

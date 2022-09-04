@@ -149,7 +149,7 @@ class DGLFileGenerator:
                 freq[rid_u:rid_u+1, :] = 1 / nattr['delay']
             op_type[rid_u:rid_u+1, :] = cast_op_type[nattr['op_type']]
         
-        return torch.cat([freq, degree, op_type], dim=1)
+        return torch.cat([freq, degree, op_type], dim=1).float()
 
 
     def __gen_hyper_nattr(self, G, pkt2id):
@@ -168,7 +168,7 @@ class DGLFileGenerator:
             pid = pkt2id[pkt]
             flit[pid:pid+1, :] = eattr['size']
 
-        return flit
+        return flit.float()
 
 
     def __gen_congestion(self, G):
@@ -233,7 +233,7 @@ class DGLFileGenerator:
         w_congestion = max(stats.linregress(w_x[1:], w_y[1:]).slope, 0) if len(w_x) > 4 else 0
         in_congestion = max(stats.linregress(in_x[1:], in_y[1:]).slope, 0) if len(in_x) > 4 else 0
 
-        return torch.tensor([w_congestion, in_congestion])
+        return torch.tensor([w_congestion, in_congestion]).float()
 
 
 
