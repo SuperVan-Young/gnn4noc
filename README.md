@@ -1,8 +1,10 @@
 # GNN4NoC
 
 ## Prerequisites
-- FOCUS scheduler
+- python >= 3.8
+- FOCUS scheduler (if building dataset is needed)
 - DGL
+- pytorch
 
 ## Build Dataset
 Run the following command:

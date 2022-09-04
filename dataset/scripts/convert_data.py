@@ -25,5 +25,7 @@ for root, dirs, files in os.walk(sim_result_root):
     dgl_generator = DGLFileGenerator()
 
     for layer in trace_analyzer.get_layers():
-        dgl_generator.dump_data(trace_analyzer, layer)
-
+        try:
+            dgl_generator.dump_data(trace_analyzer, layer)
+        except KeyError:
+            continue

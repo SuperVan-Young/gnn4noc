@@ -1,5 +1,6 @@
 import pickle
 import os
+from matplotlib.pyplot import connect
 import numpy as np
 from scipy import stats
 import networkx as nx
@@ -89,16 +90,22 @@ class DGLFileGenerator:
                 if rid_e not in router_to_router[rid_s]:
                     router_to_router[rid_s].append(rid_e)
 
+        pass_edges = self.__parse_edges_dict(packet_to_router)
+        transfer_edges = (pass_edges[1].clone().detach(), pass_edges[0].clone().detach())
+        connect_edges = self.__parse_edges_dict(router_to_router)
+        backpressure_edges = (connect_edges[1].clone().detach(), connect_edges[0].clone().detach())
         graph = dgl.heterograph({
-            ('packet', 'pass', 'router'): self.__parse_edges_dict(packet_to_router),
-            ('router', 'connect', 'router'): self.__parse_edges_dict(router_to_router),
+            ('packet', 'pass', 'router'): pass_edges,
+            ('router', 'transfer', 'packet'): transfer_edges,
+            ('router', 'connect', 'router'): connect_edges,
+            ('router', 'backpressure', 'router'): backpressure_edges,
         })
 
         return graph, pkt2id, rt2id
         
 
     
-    def __parse_edge_dict(self, edges):
+    def __parse_edges_dict(self, edges):
         """ Parse dict of edge lists.
         Return: source node tensor, dest node tensor
         """
@@ -124,9 +131,9 @@ class DGLFileGenerator:
         """
 
         num_routers =  len(rt2id)
-        freq = torch.zeros(shape=(num_routers, 1))
-        degree = torch.ones(shape=(num_routers, 1))
-        op_type = torch.zeros(shape=(num_routers, 4))
+        freq = torch.zeros(num_routers, 1)
+        degree = torch.ones(num_routers, 1)
+        op_type = torch.zeros(num_routers, 4)
 
         cast_op_type = {
             "wsrc": torch.tensor([1, 0, 0, 0]).unsqueeze(0),
@@ -138,7 +145,7 @@ class DGLFileGenerator:
         for u, nattr in G.nodes(data=True):
             u_pe = nattr['p_pe']
             rid_u = rt2id[u_pe]
-            if 'delay' in nattr.keys():
+            if 'delay' in nattr.keys() and nattr['delay'] != 0:
                 freq[rid_u:rid_u+1, :] = 1 / nattr['delay']
             op_type[rid_u:rid_u+1, :] = cast_op_type[nattr['op_type']]
         
@@ -154,7 +161,7 @@ class DGLFileGenerator:
         - flit
         """
         num_packets = len(pkt2id)
-        flit = torch.zeros(shape=(num_packets, 1))
+        flit = torch.zeros(num_packets, 1)
 
         for u, v, eattr in G.edges(data=True):
             pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine

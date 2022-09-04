@@ -1,31 +1,129 @@
 import os
+from turtle import forward
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import dgl
-from dgl.nn.pytorch import NNConv
+import dgl.function as fn
+
+class ResidualBlock(nn.Module):
+    def __init__(self, h_dim, input_dim=None):
+        if input_dim == None:
+            input_dim = h_dim
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, h_dim),
+            nn.ReLU(),
+            nn.Linear(h_dim, input_dim),
+        )
+
+    def forward(self, x):
+        return x + self.mlp(x)
+
+
+class FeatureGen(nn.Module):
+    """Convert embedding feature dim into global hidden dim.
+    """
+    def __init__(self, h_dim, node_dim, hyper_node_dim):
+        self.node_lin = nn.Linear(node_dim, h_dim)
+        self.hyper_lin = nn.Linear(hyper_node_dim, h_dim)
+
+        self.node_mlp = ResidualBlock(h_dim)
+        self.hyper_mlp = ResidualBlock(h_dim)
+
+    def forward(self, g:dgl.heterograph):
+        node_embed = g.nodes["router"].data['embed']
+        node_feat = self.node_lin(node_embed)
+        node_feat = self.node_MLP(node_feat)
+
+        hyper_node_embed = g.nodes['packet'].data['embed']
+        hyper_node_feat = self.hyper_node_MLP(hyper_node_embed)
+        hyper_node_feat = self.hyper_node_MLP(hyper_node_feat)
+
+        g.nodes['router'].data['feat'] = node_feat
+        g.nodes['packet'].data['feat'] = hyper_node_feat
+
+
+class MessagePassing(nn.Module):
+    """Passing message through a paticular edge type.
+    """
+    def __init__(self, h_dim, etype):
+        self.mlp_m = ResidualBlock(h_dim)  # message
+        self.lin_r = nn.Sequential(
+            nn.Linear(4*h_dim, h_dim),
+            nn.ReLU(),
+        )  # reduce
+        self.etype = etype
+
+        etype2srctype = {
+            "pass": "packet",
+            "transfer": "router",
+            "connect": "router",
+            "backpressure": "router",
+        }
+        etype2dsttype = {
+            "pass": "router",
+            "transfer": "packet",
+            "connect": "router",
+            "backpressure": "router",
+        }
+        self.srctype = etype2srctype[etype]
+        self.dsttype = etype2dsttype[etype]
+
+    def forward(self, g):
+        srcfeat = g.nodes[self.srctype].data['feat']
+        g.nodes[self.srctype].data['h'] = self.mlp_m(srcfeat)
+        g.multi_update_all(
+            {self.etype: (fn.copy_u('h', 'm'), fn.sum('m', 'h_sum'))}
+        )
+        g.multi_update_all(
+            {self.etype: (fn.copy_u('h', 'm'), fn.max('m', 'h_max'))}
+        )
+        g.multi_update_all(
+            {self.etype: (fn.copy_u('h', 'm'), fn.mean('m', 'h_mean'))}
+        )
+        
+        h_sum = g.nodes[self.dsttype].data['h_sum']
+        h_max = g.nodes[self.dsttype].data['h_max']
+        h_mean = g.nodes[self.dsttype].data['h_mean']
+
+        dstfeat = g.nodes[self.dsttype].data['feat']
+        h_concat = torch.concat([h_sum, h_max, h_mean, dstfeat], dim=1)
+        dstfeat = dstfeat + self.lin_r(h_concat)  # residual connection
+
+
+class GraphEmbedding(nn.Module):
+    """Aggregate Graph level information.
+    For simplicity, we use mean reduction.
+    """
+    def forward(self, g):
+        hyper_info = torch.mean(g.nodes['packet'].data['feat'], dim=0)
+        node_info = torch.mean(g.nodes['router'].data['feat'], dim=0)
+        return torch.cat((hyper_info, node_info))
+
 
 class VanillaModel(nn.Module):
-    """A demo model with 2-layer NNConv and 2-layer MLP
+    """A demo GNN model for NoC congestion prediction.
     """
 
-    def __init__(self, n_feats, e_feats, h_feats):
-        super().__init__()
-        self.elin_1 = nn.Linear(e_feats, n_feats * h_feats)
-        self.elin_2 = nn.Linear(e_feats, h_feats * h_feats)
-        self.conv1 = NNConv(n_feats, h_feats, lambda x: self.elin_1(x))
-        self.conv2 = NNConv(h_feats, h_feats, lambda x: self.elin_2(x))
-        # self.inlat_lin_1 = nn.Linear(h_feats, h_feats)
-        self.inlat_lin_2 = nn.Linear(h_feats, 1)
+    def __init__(self, h_dim=64, node_dim=6, hyper_node_dim=1):
+        self.feature_gen = FeatureGen(h_dim, node_dim, hyper_node_dim)
+        self.pass_mp = MessagePassing(h_dim, "pass")
+        self.transfer_mp = MessagePassing(h_dim, "transfer")
+        self.connect_mp = MessagePassing(h_dim, "connect")
+        self.bp_mp = MessagePassing(h_dim, "backpressure")
+        self.graph_embedding = GraphEmbedding()
+        self.prediction_head = nn.Sequential(
+            nn.Linear(2*h_dim, 2),
+            nn.ReLU(),
+        )
 
-
-    def forward(self, g, nfeat, efeat):
-        h = self.conv1(g, nfeat, efeat)
-        h = F.relu(h)
-        h = self.conv2(g, h, efeat)
-        h = F.relu(h)
-        # h = self.inlat_lin_1(h)
-        # h = F.relu(h)
-        h = self.inlat_lin_2(h)
-
-        return h
+    
+    def forward(self, g):
+        self.feature_gen(g)
+        self.pass_mp(g)
+        self.connect_mp(g)
+        self.bp_mp(g)
+        self.transfer_mp(g)
+        embed = self.graph_embedding(g)
+        pred = self.prediction_head(embed)
+        return pred
