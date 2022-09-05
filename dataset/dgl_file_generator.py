@@ -57,8 +57,10 @@ class DGLFileGenerator:
         congestion = self.__gen_congestion(G)
 
         sample_path = f"{trace_analyzer.taskname}_{layer}.pkl"
-        with open(os.path.join(dataset_root, "data", sample_path), "wb") as f:
-            pkl.dump((graph, congestion), f)
+        if congestion.max() <= 10:
+            # adjustment: ignore bad data
+            with open(os.path.join(dataset_root, "data", sample_path), "wb") as f:
+                pkl.dump((graph, congestion), f)
 
     
     def __gen_hetero_graph(self, trace_analyzer:TraceAnalyzer, G):
@@ -232,6 +234,11 @@ class DGLFileGenerator:
         # ignore the first irregular data due to instr. flow
         w_congestion = max(stats.linregress(w_x[1:], w_y[1:]).slope, 0) if len(w_x) > 4 else 0
         in_congestion = max(stats.linregress(in_x[1:], in_y[1:]).slope, 0) if len(in_x) > 4 else 0
+
+        # adjust workload ratio
+        workload = min(int(G.nodes[wsrc]['delay']), int(G.nodes[insrc]['delay']))
+        w_congestion = w_congestion / workload
+        in_congestion = in_congestion / workload
 
         return torch.tensor([w_congestion, in_congestion]).float()
 

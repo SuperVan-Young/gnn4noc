@@ -35,11 +35,11 @@ cores = {
     "inception": [4, 6, 8, 10],
     "mnasnet": [4, 6, 8, 10],
     "mobilenet_v3_large": [4, 6, 8, 10],
-    "mobilenet_v3_small": [2, 4, 6, 8],
+    "mobilenet_v3_small": [4, 6, 8, 10],
     "resnet50": [4, 6, 8, 10],
     "resnext50_32x4d": [4, 6, 8, 10],
     "ssd_r34": [6, 8],
-    "unet": [2, 4, 6, 8],
+    "unet": [4, 6, 8],
     "vgg16": [8],
     "wide_resnet50_2": [4, 6, 8, 10],
 }

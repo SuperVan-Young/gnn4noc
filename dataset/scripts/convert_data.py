@@ -21,11 +21,11 @@ for root, dirs, files in os.walk(sim_result_root):
 
     taskname = os.path.split(root)[1]
     print(taskname)
-    trace_analyzer = TraceAnalyzer(taskname)
+    try:
+        trace_analyzer = TraceAnalyzer(taskname)
+    except KeyError:
+        continue
     dgl_generator = DGLFileGenerator()
 
     for layer in trace_analyzer.get_layers():
-        try:
-            dgl_generator.dump_data(trace_analyzer, layer)
-        except KeyError:
-            continue
+        dgl_generator.dump_data(trace_analyzer, layer)

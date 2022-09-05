@@ -13,7 +13,7 @@ class ResidualBlock(nn.Module):
             input_dim = h_dim
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, h_dim),
-            nn.ReLU(),
+            nn.LeakyReLU(0.1),
             nn.Linear(h_dim, input_dim),
         )
 
@@ -53,7 +53,7 @@ class MessagePassing(nn.Module):
         self.mlp_m = ResidualBlock(h_dim)  # message
         self.lin_r = nn.Sequential(
             nn.Linear(4*h_dim, h_dim),
-            nn.ReLU(),
+            nn.LeakyReLU(0.1),
         )  # reduce
         self.etype = etype
 
@@ -93,7 +93,7 @@ class MessagePassing(nn.Module):
         h_mean = g.nodes[self.dsttype].data['h_mean']
 
         dstfeat = g.nodes[self.dsttype].data['feat']
-        h_concat = torch.concat([h_sum, h_max, h_mean, dstfeat], dim=1)
+        h_concat = torch.concat([h_sum, h_max, h_mean, dstfeat], dim=-1)
         dstfeat = dstfeat + self.lin_r(h_concat)  # residual connection
 
 
@@ -105,8 +105,8 @@ class GraphEmbedding(nn.Module):
         super().__init__()
 
     def forward(self, g):
-        hyper_info = torch.mean(g.nodes['packet'].data['feat'], dim=0)
-        node_info = torch.mean(g.nodes['router'].data['feat'], dim=0)
+        hyper_info = torch.mean(g.nodes['packet'].data['feat'], dim=-2)
+        node_info = torch.mean(g.nodes['router'].data['feat'], dim=-2)
         return torch.cat((hyper_info, node_info))
 
 
@@ -120,13 +120,15 @@ class VanillaModel(nn.Module):
         self.pass_mp = MessagePassing(h_dim, "pass")
         self.connect_mp_1 = MessagePassing(h_dim, "connect")
         # self.connect_mp_2 = MessagePassing(h_dim, "connect")
-        self.bp_mp_1 = MessagePassing(h_dim, "backpressure")
+        # self.bp_mp_1 = MessagePassing(h_dim, "backpressure")
         # self.bp_mp_2 = MessagePassing(h_dim, "backpressure")
-        self.transfer_mp = MessagePassing(h_dim, "transfer")
+        # self.transfer_mp = MessagePassing(h_dim, "transfer")
         self.graph_embedding = GraphEmbedding()
         self.prediction_head = nn.Sequential(
             nn.Linear(2*h_dim, h_dim),
-            nn.ReLU(),
+            nn.LeakyReLU(0.1),
+            nn.Linear(h_dim, h_dim),
+            nn.LeakyReLU(0.1),
             nn.Linear(h_dim, 2),
         )
 
@@ -135,8 +137,8 @@ class VanillaModel(nn.Module):
         self.feature_gen(g)
         self.pass_mp(g)
         self.connect_mp_1(g)
-        self.bp_mp_1(g)
-        self.transfer_mp(g)
+        # self.bp_mp_1(g)
+        # self.transfer_mp(g)
         embed = self.graph_embedding(g)
         pred = self.prediction_head(embed)
         return pred
