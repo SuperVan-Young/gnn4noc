@@ -34,6 +34,8 @@ class SmartDict(UserDict):
 
 
 class DGLFileGenerator:
+
+    
     """Generate DGL files for training.
     """
     
@@ -57,7 +59,7 @@ class DGLFileGenerator:
         congestion = self.__gen_congestion(G)
 
         sample_path = f"{trace_analyzer.taskname}_{layer}.pkl"
-        if congestion.max() <= 10:
+        if congestion.max() <= 50:
             # adjustment: ignore bad data
             with open(os.path.join(dataset_root, "data", sample_path), "wb") as f:
                 pkl.dump((graph, congestion), f)
@@ -124,16 +126,14 @@ class DGLFileGenerator:
     def __gen_nattr(self, G, rt2id):
         """Generate router's attribute.
         Return: Tensor(#Router, node_dim)
-        For now, node_dim = 6
+        For now, node_dim = 5
 
         Node attribute contains:
-        - frequency to send packet
-        - degree: 1 (updated in forwarding and backwarding)
+        - degree: 1 (or representing a router)
         - optype: one-hot representation
         """
 
         num_routers =  len(rt2id)
-        freq = torch.zeros(num_routers, 1)
         degree = torch.ones(num_routers, 1)
         op_type = torch.zeros(num_routers, 4)
 
@@ -147,30 +147,31 @@ class DGLFileGenerator:
         for u, nattr in G.nodes(data=True):
             u_pe = nattr['p_pe']
             rid_u = rt2id[u_pe]
-            if 'delay' in nattr.keys() and nattr['delay'] != 0:
-                freq[rid_u:rid_u+1, :] = 1 / nattr['delay']
             op_type[rid_u:rid_u+1, :] = cast_op_type[nattr['op_type']]
         
-        return torch.cat([freq, degree, op_type], dim=1).float()
+        return torch.cat([degree, op_type], dim=1).float()
 
 
     def __gen_hyper_nattr(self, G, pkt2id):
         """Generate packet's attribute.
         Return: Tensor(#Packet, hyper_node_dim)
-        For now, hyper_node_dim = 1
+        For now, hyper_node_dim = 2
 
         Node attribute contains:
+        - frequency to send packet
         - flit
         """
         num_packets = len(pkt2id)
+        freq = torch.zeros(num_packets, 1)
         flit = torch.zeros(num_packets, 1)
 
         for u, v, eattr in G.edges(data=True):
             pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine
             pid = pkt2id[pkt]
             flit[pid:pid+1, :] = eattr['size']
+            freq[pid:pid+1, :] = 1 / G.nodes[u]['delay']
 
-        return flit.float()
+        return torch.cat([freq, flit], dim=1).float()
 
 
     def __gen_congestion(self, G):
