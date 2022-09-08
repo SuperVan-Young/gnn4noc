@@ -6,6 +6,17 @@ import torch.nn.functional as F
 import dgl
 import dgl.function as fn
 
+class LinearBlock(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.lin = nn.Sequential(
+            nn.Linear(input_dim, output_dim),
+            nn.ReLU()
+        )
+    
+    def forward(self, x):
+        return self.lin(x)
+
 class ResidualBlock(nn.Module):
     def __init__(self, h_dim, input_dim=None):
         super().__init__()
@@ -25,28 +36,22 @@ class ResidualBlock(nn.Module):
 class FeatureGen(nn.Module):
     """Convert embedding feature dim into global hidden dim.
     """
-    def __init__(self, h_dim, node_dim, hyper_node_dim):
+    def __init__(self, h_dim):
         super().__init__()
-        self.node_lin = nn.Sequential(
-            nn.Linear(node_dim, h_dim),
-            nn.ReLU()
-        )
-        self.hyper_lin = nn.Sequential(
-            nn.Linear(hyper_node_dim, h_dim),
-            nn.ReLU()
-        ) 
-
-        # self.node_mlp = ResidualBlock(h_dim)
-        # self.hyper_mlp = ResidualBlock(h_dim)
+        self.hyper_lin_freq = LinearBlock(1, h_dim)
+        self.hyper_lin_flit = LinearBlock(32, h_dim)
+        self.node_lin_op_type = LinearBlock(4, h_dim)
+        self.fuse_hyper = LinearBlock(2*h_dim, h_dim)
+        self.fuse_node = LinearBlock(h_dim, h_dim)
 
     def forward(self, g:dgl.heterograph):
-        node_embed = g.nodes["router"].data['embed']
-        node_feat = self.node_lin(node_embed)
-        # node_feat = self.node_mlp(node_feat)
+        freq_feat = self.hyper_lin_freq(g.nodes['packet'].data['freq'])
+        flit_feat = self.hyper_lin_flit(g.nodes['packet'].data['flit'])
+        hyper_node_feat = torch.concat([freq_feat, flit_feat], dim=1)
+        hyper_node_feat = self.fuse_hyper(hyper_node_feat)
 
-        hyper_node_embed = g.nodes['packet'].data['embed']
-        hyper_node_feat = self.hyper_lin(hyper_node_embed)
-        # hyper_node_feat = self.hyper_mlp(hyper_node_feat)
+        op_type_feat = self.node_lin_op_type(g.nodes['router'].data['op_type'])
+        node_feat = self.fuse_node(op_type_feat)
 
         g.nodes['router'].data['feat'] = node_feat
         g.nodes['packet'].data['feat'] = hyper_node_feat
@@ -153,9 +158,9 @@ class VanillaModel(nn.Module):
     """A demo GNN model for NoC congestion prediction.
     """
 
-    def __init__(self, h_dim=64, node_dim=5, hyper_node_dim=2):
+    def __init__(self, h_dim=64):
         super().__init__()
-        self.feature_gen = FeatureGen(h_dim, node_dim, hyper_node_dim)
+        self.feature_gen = FeatureGen(h_dim)
         self.conv1 = HeteroGraphConv(h_dim)
         self.conv2 = HeteroGraphConv(h_dim)
         self.prediction_head = nn.Sequential(
@@ -163,7 +168,7 @@ class VanillaModel(nn.Module):
             nn.ReLU(),
             nn.Linear(h_dim, h_dim),
             nn.ReLU(),
-            nn.Linear(h_dim, 2)
+            nn.Linear(h_dim, 4)
         )
 
     

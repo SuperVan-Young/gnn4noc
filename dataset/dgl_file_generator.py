@@ -55,15 +55,16 @@ class DGLFileGenerator:
         G = G.subgraph(nodes)
 
         graph, pkt2id, rt2id = self.__gen_hetero_graph(trace_analyzer, G)
-        graph.nodes['packet'].data['embed'] = self.__gen_hyper_nattr(G, pkt2id)
-        graph.nodes['router'].data['embed'] = self.__gen_nattr(G, rt2id)
+        
+        for attr, t in self.__gen_hyper_nattr(G, pkt2id).items():
+            graph.nodes['packet'].data[attr] = t
+        for attr, t in self.__gen_nattr(G, rt2id).items():
+            graph.nodes['router'].data[attr] = t
         congestion = self.__gen_congestion(G)
 
         sample_path = f"{trace_analyzer.taskname}_{layer}.pkl"
-        if congestion.max() <= 50:
-            # adjustment: ignore bad data
-            with open(os.path.join(dataset_root, "data", sample_path), "wb") as f:
-                pkl.dump((graph, congestion), f)
+        with open(os.path.join(dataset_root, "data", sample_path), "wb") as f:
+            pkl.dump((graph, congestion), f)
 
     
     def __gen_hetero_graph(self, trace_analyzer:TraceAnalyzer, G):
@@ -124,11 +125,10 @@ class DGLFileGenerator:
     
     def __gen_nattr(self, G, rt2id):
         """Generate router's attribute.
-        Return: Tensor(#Router, node_dim)
-        For now, node_dim = 4
+        Return: [Tensor(#Router, node_attr_dim)]
 
         Node attribute contains:
-        - optype: one-hot representation
+        - op_type: one-hot representation, dim=4
         """
 
         num_routers =  len(rt2id)
@@ -146,17 +146,18 @@ class DGLFileGenerator:
             rid_u = rt2id[u_pe]
             op_type[rid_u:rid_u+1, :] = cast_op_type[nattr['op_type']]
         
-        return op_type.float()
+        return {
+            "op_type": op_type.float()
+        }
 
 
     def __gen_hyper_nattr(self, G, pkt2id):
         """Generate packet's attribute.
-        Return: Tensor(#Packet, hyper_node_dim)
-        For now, hyper_node_dim = 2
+        Return: [Tensor(#Packet, hyper_node_dim)
 
         Node attribute contains:
-        - frequency to send packet
-        - flit
+        - frequency to send packet, dim=1
+        - flit, dim=32
         """
         num_packets = len(pkt2id)
         freq = torch.zeros(num_packets, 1)
@@ -170,7 +171,10 @@ class DGLFileGenerator:
 
         flit = self.__binarize_float(flit, 32)
 
-        return torch.cat([freq, flit], dim=1).float()
+        return {
+            "flit": flit.float(),
+            "freq": freq.float(),
+        }
 
 
     def __gen_congestion(self, G):
