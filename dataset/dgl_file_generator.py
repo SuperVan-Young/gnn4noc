@@ -5,6 +5,7 @@ import numpy as np
 from scipy import stats
 import networkx as nx
 import torch
+import torch.nn.functional as F
 import dgl
 import pickle as pkl
 
@@ -107,7 +108,6 @@ class DGLFileGenerator:
 
         return graph, pkt2id, rt2id
         
-
     
     def __parse_edges_dict(self, edges):
         """ Parse dict of edge lists.
@@ -121,20 +121,17 @@ class DGLFileGenerator:
 
         return torch.tensor(src), torch.tensor(dst)
         
-
     
     def __gen_nattr(self, G, rt2id):
         """Generate router's attribute.
         Return: Tensor(#Router, node_dim)
-        For now, node_dim = 5
+        For now, node_dim = 4
 
         Node attribute contains:
-        - degree: 1 (or representing a router)
         - optype: one-hot representation
         """
 
         num_routers =  len(rt2id)
-        degree = torch.ones(num_routers, 1)
         op_type = torch.zeros(num_routers, 4)
 
         cast_op_type = {
@@ -149,7 +146,7 @@ class DGLFileGenerator:
             rid_u = rt2id[u_pe]
             op_type[rid_u:rid_u+1, :] = cast_op_type[nattr['op_type']]
         
-        return torch.cat([degree, op_type], dim=1).float()
+        return op_type.float()
 
 
     def __gen_hyper_nattr(self, G, pkt2id):
@@ -171,12 +168,14 @@ class DGLFileGenerator:
             flit[pid:pid+1, :] = eattr['size']
             freq[pid:pid+1, :] = 1 / G.nodes[u]['delay']
 
+        flit = self.__binarize_float(flit, 32)
+
         return torch.cat([freq, flit], dim=1).float()
 
 
     def __gen_congestion(self, G):
         """Calculate congestion ratio.
-        Return: Tensor(2,)
+        Return: Tensor(4,)
         """
 
         wsrc = [n for n, attr in G.nodes(data=True) if attr["op_type"] == "wsrc"]
@@ -241,10 +240,26 @@ class DGLFileGenerator:
         w_congestion = w_congestion / workload
         in_congestion = in_congestion / workload
 
-        return torch.tensor([w_congestion, in_congestion]).float()
+        # normalize
+        w_vec = torch.tensor([1, w_congestion])
+        in_vec = torch.tensor([1, in_congestion])
+        w_vec = F.normalize(w_vec, p=2, dim=0)
+        in_vec = F.normalize(in_vec, p=2, dim=0)
+
+        return torch.concat([w_vec, in_vec], dim=0).float()
 
 
+    def __binarize_float(self, tensor, bit):
+        """Binarize float into 8-bit integer, represented in vector
+        Input: tensor(N, 1)
+        Return: tensor(N, bit)
+        """
+        
+        assert len(tensor.shape) == 2
+        assert tensor.shape[1] == 1
+        N, _ = tensor.shape
+        bin_tensor = torch.zeros(N, bit)
 
-
-
-
+        for i in range(bit):
+            bin_tensor[:, i:i+1] = tensor % (2 ** (i+1))
+        return bin_tensor
