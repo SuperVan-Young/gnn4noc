@@ -1,8 +1,6 @@
 import os
 import random
 
-from numpy import broadcast
-
 class DataSampler():
     def __init__(self) -> None:
         random.seed(114514)
