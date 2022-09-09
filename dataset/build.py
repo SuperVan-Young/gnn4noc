@@ -36,6 +36,7 @@ def convert_single_data(layer_config, array_size=8, flit_size=1024):
     try:
         trace_analyzer = TraceAnalyzer(taskname)
     except KeyError:
+        print(f"KeyError in {taskname}")
         return
     dgl_generator = DGLFileGenerator()
     for layer in trace_analyzer.get_layers():
@@ -68,7 +69,7 @@ def run_multiple_process():
 
     for i in range(gc.num_samples):
         layer_config = data_sampler.get_random_sample()
-        pool.apply(run_single_process, args=(layer_config, ))
+        pool.apply_async(run_single_process, args=(layer_config, ))
     pool.close()
     pool.join()
 

@@ -10,11 +10,9 @@ import dgl
 import pickle as pkl
 
 from trace_analyzer import TraceAnalyzer
-
-dataset_root = os.path.dirname(os.path.abspath(__file__))
-if not os.path.exists(os.path.join(dataset_root, "data")):
-    os.mkdir(os.path.join(dataset_root, "data"))
-
+import sys
+sys.path.append("..")
+import global_control as gc
 
 from collections import UserDict
 class SmartDict(UserDict):
@@ -60,8 +58,8 @@ class DGLFileGenerator:
             graph.nodes['router'].data[attr] = t
         congestion = self.__gen_congestion(G)
 
-        sample_path = f"{trace_analyzer.taskname}_{layer}.pkl"
-        with open(os.path.join(dataset_root, "data", sample_path), "wb") as f:
+        sample_path = f"{trace_analyzer.taskname}.pkl"
+        with open(os.path.join(gc.data_root, sample_path), "wb") as f:
             pkl.dump((graph, congestion), f)
 
     
@@ -76,6 +74,8 @@ class DGLFileGenerator:
         rt2id = SmartDict()
 
         for u, v, eattr in G.edges(data=True):
+            if eattr['edge_type'] != "data":
+                continue
             pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
             routing = trace_analyzer.get_routing_hops(u_pe, v_pe, pkt)
@@ -162,6 +162,8 @@ class DGLFileGenerator:
         flit = torch.zeros(num_packets, 1)
 
         for u, v, eattr in G.edges(data=True):
+            if eattr['edge_type'] != "data":
+                continue
             pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine
             pid = pkt2id[pkt]
             flit[pid:pid+1, :] = eattr['size']

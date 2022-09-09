@@ -16,8 +16,8 @@ def run_focus(layer_config, array_size=8, flit_size=1024):
         os.mkdir(task_root)
 
     # dump model config
-    data = {layer_config: [{f"{layer_config}_layer1": 2}]} # number is neglected 
-    model_path = os.path.join(gc.tasks_root, taskname, f"model.yaml")
+    data = {layer_config: [{f"{layer_config}": 2}]} # number is neglected 
+    model_path = os.path.join(task_root, "model.yaml")
     with open(model_path, "w") as f:
         yaml.dump(data, f)
 
@@ -29,7 +29,7 @@ def run_focus(layer_config, array_size=8, flit_size=1024):
     # if failure happens (e.g., deadlock detected), delete this sample
     if ret != 0:
         print(f"Failed to run: {cmd_line}")
-        os.removedirs(task_root)
+        os.system(f"rm -r {task_root}")
         return 1
 
     # otherwise, fetch the result to task root

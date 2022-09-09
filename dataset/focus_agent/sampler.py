@@ -59,7 +59,9 @@ class DataSampler():
             "wos": (x, 1, x),
             "ios": (1, x, x),
         }
-        return results[dataflow_type]
+        delay_factor = int(2 ** random.uniform(0, 10))
+        ret = [i * delay_factor for i in results[dataflow_type]]
+        return ret
 
     def _gen_cnt(self, dataflow_type, dataflow_ratio):
         x = dataflow_ratio
@@ -72,7 +74,9 @@ class DataSampler():
             "wos": (1, x, 1),
             "ios": (x, 1, 1),
         }
-        return results[dataflow_type]
+        cnt_factor = int(2 ** random.uniform(0, 10))
+        ret = [i * cnt_factor for i in results[dataflow_type]]
+        return ret
 
     def _gen_broadcast(self):
         """Generate broadcast info.
