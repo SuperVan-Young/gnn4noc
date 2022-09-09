@@ -1,8 +1,9 @@
 import os
-from pydoc import doc
 import re
 import networkx as nx
 import yaml
+
+import global_control as gc
 from compiler.op_graph.micro_op_graph import MicroOpGraph
 
 class TraceAnalyzer():
@@ -13,7 +14,7 @@ class TraceAnalyzer():
         self.taskname = taskname
 
         prj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        task_root = os.path.join(prj_root, "dataset/sim_result", taskname)
+        task_root = os.path.join(prj_root, "dataset/tasks", taskname)
 
         self.op_graph_path = os.path.join(task_root, "op_graph.gpickle")
         self.out_log_path = os.path.join(task_root, "out.log")

@@ -35,8 +35,6 @@ class SmartDict(UserDict):
 
 
 class DGLFileGenerator:
-
-    
     """Generate DGL files for training.
     """
     
@@ -245,12 +243,9 @@ class DGLFileGenerator:
         in_congestion = in_congestion / workload
 
         # normalize
-        w_vec = torch.tensor([1, w_congestion])
-        in_vec = torch.tensor([1, in_congestion])
-        w_vec = F.normalize(w_vec, p=2, dim=0)
-        in_vec = F.normalize(in_vec, p=2, dim=0)
-
-        return torch.concat([w_vec, in_vec], dim=0).float()
+        congestion = max(w_congestion, in_congestion)
+        congestion = torch.tensor(congestion)
+        return congestion
 
 
     def __binarize_float(self, tensor, bit):
@@ -267,3 +262,19 @@ class DGLFileGenerator:
         for i in range(bit):
             bin_tensor[:, i:i+1] = tensor % (2 ** (i+1))
         return bin_tensor
+
+
+    def categorize_float(self, tensor, category):
+        """map tensor to onehot category.
+        Input: tensor(N, 1), tensor(1, L)
+        Return: tensor(N, L + 1)
+        """
+        #TODO: decouple dataset and categorization
+        assert len(tensor.shape) == 2
+        assert tensor.shape[1] == 1
+        assert len(category.shape) == 2
+        assert category.shape[0] == 1
+        category_tensor = (tensor < category).int()   
+        category_tensor = torch.cat([category_tensor, torch.ones(tensor.shape[0], 1)], dim=1)
+        category_tensor = F.one_hot(category_tensor.argmax(dim=1))
+        return category_tensor

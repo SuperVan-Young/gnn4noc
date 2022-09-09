@@ -7,8 +7,8 @@ import multiprocessing as mp
 
 import global_control as gc
 
-def run_focus(layer, array_size=8, flit_size=1024):
-    taskname = f"{layer}_b1w{flit_size}_{array_size}x{array_size}"
+def run_focus(layer_config, array_size=8, flit_size=1024):
+    taskname = f"{layer_config}_b1w{flit_size}_{array_size}x{array_size}"
     task_root = os.path.join(gc.tasks_root, taskname)
     simulator_task_root = os.path.join(gc.simulator_root, taskname)
 
@@ -16,7 +16,7 @@ def run_focus(layer, array_size=8, flit_size=1024):
         os.mkdir(task_root)
 
     # dump model config
-    data = {layer: [{layer: 2}]} # number is neglected 
+    data = {layer_config: [{f"{layer_config}_layer1": 2}]} # number is neglected 
     model_path = os.path.join(gc.tasks_root, taskname, f"model.yaml")
     with open(model_path, "w") as f:
         yaml.dump(data, f)
