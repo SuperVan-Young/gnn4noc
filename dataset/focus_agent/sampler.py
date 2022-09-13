@@ -1,9 +1,27 @@
 import os
 import random
 
+def sample_within_range(distribution, min, max):
+    """Sample from given distribution, but only keep valid value from (min, max)
+    This prevents distribution skewing from brutal clamping.
+    """
+    x = distribution()
+    cnt = 10
+    while x < min or x > max:
+        x = distribution()
+        cnt -= 1
+        if cnt == 0:
+            return random.randint(min, max)  # return a default distribution
+    return x
+
+
 class DataSampler():
     def __init__(self) -> None:
         random.seed(114514)
+        # set ranges, which should run successfully within 5 min
+        self.ratio_range = 128
+        self.cnt_range = 2 ** 12
+        self.delay_range = 2 ** 13
 
     def get_random_sample(self):
         df_type, df_ratio = self._gen_dataflow()
@@ -45,9 +63,10 @@ class DataSampler():
             "ios",
         ]
         dataflow_type = types[int(random.uniform(0, 7))]
-        dataflow_ratio = int(random.gammavariate(alpha=2, beta=15))
+        dataflow_ratio_sampler = lambda : int(random.gammavariate(alpha=2, beta=15))
+        dataflow_ratio = sample_within_range(dataflow_ratio_sampler, 1, self.ratio_range)
         return dataflow_type, dataflow_ratio
-
+    
     def _gen_delay(self, dataflow_type, dataflow_ratio):
         x = dataflow_ratio
         results = {
@@ -59,7 +78,8 @@ class DataSampler():
             "wos": (x, 1, x),
             "ios": (1, x, x),
         }
-        delay_factor = int(2 ** random.uniform(0, 10))
+        distribution = lambda : int(2 ** random.uniform(0, 10))
+        delay_factor = sample_within_range(distribution, 1, self.delay_range // x)
         ret = [i * delay_factor for i in results[dataflow_type]]
         return ret
 
@@ -74,7 +94,8 @@ class DataSampler():
             "wos": (1, x, 1),
             "ios": (x, 1, 1),
         }
-        cnt_factor = int(2 ** random.uniform(0, 10))
+        distribution = lambda : int(2 ** random.uniform(0, 10))
+        cnt_factor = sample_within_range(distribution, 1, self.cnt_range // x)
         ret = [i * cnt_factor for i in results[dataflow_type]]
         return ret
 
@@ -93,7 +114,7 @@ class DataSampler():
 
     def _gen_flit(self):
         """Generate packet size.
-        Use same gamma distribution for simplicity
+        Use same gamma distribution for simplicity.
         """
         results = (
             int(random.gammavariate(alpha=2, beta=5)),
