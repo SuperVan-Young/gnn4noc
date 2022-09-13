@@ -54,14 +54,14 @@ def convert_all_data():
         for layer in trace_analyzer.get_layers():
             dgl_generator.dump_data(trace_analyzer, layer)
 
-
 def run_single_process(layer_config):
     ret = run_focus(layer_config)
     if gc.convert and ret == 0:
-        convert_single_data(layer_config)
-
+        convert_single_data(layer_config)  # runtime conversion
 
 def run_multiple_process():
+    """Use process pool to simultaneously run multiple samples.
+    """
     print(f"Running {gc.num_process} processes in parallel for {gc.num_samples} samples.")
 
     pool = mp.Pool(processes=gc.num_process)
