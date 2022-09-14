@@ -9,8 +9,9 @@ import torch
 class NoCDataset(DGLDataset):
     """#TODO: Could the dataset reside on memory?
     """
-    def __init__(self, label_min, label_max):
+    def __init__(self, use_label=True, label_min=-2, label_max=9):
         super().__init__(name="NoC")
+        self.use_label = use_label
         self.num_classes = label_max - label_min
         self.__ref_labels = torch.tensor(2.0 ** np.arange(label_min, label_max-1))
 
@@ -28,10 +29,11 @@ class NoCDataset(DGLDataset):
         sample_path = os.path.join(self.data_root, self.samples[i])
         with open(sample_path, "rb") as f:
             graph, congestion = pkl.load(f)
-        label = self.__c2l(congestion)
-
-        return graph, label
-    
+        if self.use_label:
+            label = self.__c2l(congestion)
+            return graph, label
+        else:
+            return graph, congestion
 
     def __len__(self):
         return len(self.samples)

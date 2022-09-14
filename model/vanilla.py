@@ -1,3 +1,4 @@
+from cProfile import label
 import os
 from turtle import forward
 import torch
@@ -159,8 +160,11 @@ class VanillaModel(nn.Module):
     """A demo GNN model for NoC congestion prediction.
     """
 
-    def __init__(self, h_dim=64, num_labels=4):
+    def __init__(self, h_dim=64, label_min=-2, label_max=9):
         super().__init__()
+        self.label_min = label_min
+        self.label_max = label_max
+        num_labels = label_max - label_min
         self.feature_gen = FeatureGen(h_dim)
         self.conv1 = HeteroGraphConv(h_dim)
         self.conv2 = HeteroGraphConv(h_dim)
@@ -182,3 +186,7 @@ class VanillaModel(nn.Module):
         router_embed = torch.concat([router_embed1, router_embed2], dim=-1)
         pred = self.prediction_head(router_embed)
         return pred
+
+    
+    def label_to_congestion(self, label: int):
+        return 2.0 ** (self.label_min + label - 1) if label != 0 else 0  # left

@@ -17,17 +17,17 @@ from torch.utils.data.sampler import SubsetRandomSampler
 #------------------ Global Config --------------------------------#
 
 label_min = -2
-label_max = 8
+label_max = 9
 num_labels = label_max - label_min  # [2 ** min, 2 ** max)
 
 device = "cpu"
-epoches = 30
+epoches = 50
 batch_size = 4
-verbosity = 0  # 0 for debugging
+verbosity = 1  # 0 for debugging
 
 #------------------ Initalize Dataset ----------------------------#
 
-dataset = NoCDataset(label_min, label_max)
+dataset = NoCDataset(True, label_min, label_max)
 
 num_examples = len(dataset)
 num_train = int(num_examples * 0.9)
@@ -42,7 +42,7 @@ test_dataloader = GraphDataLoader(
 
 #------------------ Initialize Model ----------------------------#
 
-model = VanillaModel(h_dim=64, num_labels=num_labels).to(device)
+model = VanillaModel(h_dim=64, label_min=label_min, label_max=label_max).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 logger = Logger("vanilla", model, verbosity=verbosity)
 
@@ -97,3 +97,16 @@ logger.plot_curve("train_acc")
 logger.plot_curve("test_acc")
 
 logger.info("Finished training model.")
+
+#-------------------- Test congestion accuracy ----------------------------#
+
+logger.info("Testing congestion prediction performance.")
+
+dataset.use_label = False
+congestion_dataloader = GraphDataLoader(
+    dataset, sampler=test_sampler, batch_size=1, drop_last=False)
+
+for g, cong in congestion_dataloader:
+    pred = model(g)
+    pred = model.label_to_congestion(pred.argmax(1).item())
+    logger.info(f"Ground Truth = {cong}; Pred = {pred}")
