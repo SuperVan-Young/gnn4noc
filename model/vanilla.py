@@ -109,7 +109,6 @@ class MessagePassing(nn.Module):
         h_concat = torch.concat([h_sum, h_max, h_mean, dstfeat], dim=-1)
         dstfeat = dstfeat + self.lin_r(h_concat)  # residual connection
 
-
 class HeteroGraphConv(nn.Module):
     """Simplified version of the above message passing"""
     def __init__(self, h_dim):
@@ -122,8 +121,6 @@ class HeteroGraphConv(nn.Module):
             nn.Linear(h_dim, h_dim),
             nn.ReLU()
         )
-        self.stack_fn = lambda flist: torch.concat(flist, dim=-1)
-        self.apply_node_fn = lambda nodes: {'feat': F.relu(nodes.data['h']) + nodes.data['feat']}
 
     def forward(self, g):
         g.multi_update_all({
@@ -133,12 +130,16 @@ class HeteroGraphConv(nn.Module):
             },
             "sum",
         )
-        g.apply_nodes(lambda nodes: {'feat': 
-            nodes.data['feat'] + self.lin_r(torch.concat([nodes.data['h1'], nodes.data['h2']], dim=-1))},
-            ntype="router")
-        g.apply_nodes(lambda nodes: {'feat':
-            nodes.data['feat'] + self.lin_p(nodes.data['h1'])},
-            ntype='packet')
+        g.apply_nodes(self.__agg_r, ntype="router")
+        g.apply_nodes(self.__agg_p, ntype='packet')
+
+    def __agg_r(self, nodes):
+        agged = torch.concat([nodes.data['h1'], nodes.data['h2']], dim=-1)
+        return {'feat': nodes.data['feat'] + self.lin_r(agged)}
+
+    def __agg_p(self, nodes):
+        agged = nodes.data['h1']
+        return {'feat': nodes.data['feat'] + self.lin_p(agged)}
 
 
 class GraphEmbedding(nn.Module):

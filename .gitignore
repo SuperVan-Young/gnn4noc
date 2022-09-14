@@ -4,3 +4,4 @@ dataset/data
 test.ipynb
 dataset/tasks
 .vscode/*
+train/log/*

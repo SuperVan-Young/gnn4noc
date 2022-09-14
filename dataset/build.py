@@ -1,3 +1,4 @@
+from io import open_code
 import os
 import sys
 import multiprocessing as mp
@@ -45,7 +46,18 @@ def convert_single_data(layer_config, array_size=8, flit_size=1024):
 
 def convert_all_data():
     for root, dirs, files in os.walk(gc.tasks_root):
+        if root[-5:] == "tasks":
+            continue
         taskname = os.path.split(root)[1]
+        task_root = os.path.join(gc.tasks_root, taskname)
+        simulator_task_root = os.path.join(gc.simulator_root, taskname)
+        # try fetching simulation result if not exist
+        # if len(files) < 5:
+        #     op_graph_path = f"op_graph_{taskname}.gpickle"
+        #     os.system(f"cp {gc.op_graph_root}/{op_graph_path} {task_root}/op_graph.gpickle")
+        #     for file in ['out.log', 'routing_board', 'spatial_spec']:
+        #         os.system(f"cp {simulator_task_root}/{file} {task_root}/{file}")
+        # dump data
         try:
             trace_analyzer = TraceAnalyzer(taskname)
         except KeyError:
@@ -53,6 +65,7 @@ def convert_all_data():
         dgl_generator = DGLFileGenerator()
         for layer in trace_analyzer.get_layers():
             dgl_generator.dump_data(trace_analyzer, layer)
+            print(f"Info: successfully converting sample {layer}")
 
 def run_single_process(layer_config):
     ret = run_focus(layer_config)

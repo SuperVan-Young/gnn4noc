@@ -13,23 +13,25 @@ if not os.path.exists(log_root):
 class Logger():
     def __init__(self, name, model, verbosity=1) -> None:
         self.name = name
-        self.log_root = os.path.join(log_root, name, f"{int(time.time())}")
+        self.log_root = os.path.join(log_root, f"{name}_{int(time.time())}")
+        if not os.path.exists(self.log_root):
+            os.mkdir(self.log_root)
 
         self.model = model
         self.runtime_data = {
-            "train_losses": [],
-            "val_losses": [],
-            "test_losses": [],
-            "train_accs": [],
-            "val_accs": [],
-            "test_accs": [],
+            "train_loss": [],
+            "val_loss": [],
+            "test_loss": [],
+            "train_acc": [],
+            "val_acc": [],
+            "test_acc": [],
         }
         self.__init_logger(verbosity)
 
     def __init_logger(self, verbosity):
         level_dict = {0: logging.DEBUG, 1: logging.INFO, 2: logging.WARNING}
         formatter = logging.Formatter(
-            "[%(asctime)s][%(filename)s][line:%(lineno)d][%(levelname)s] %(message)s"
+            "[%(asctime)s][%(levelname)s] %(message)s"
         )
         self.logger = logging.getLogger(self.name)
         self.logger.setLevel(level_dict[verbosity])
@@ -70,13 +72,13 @@ class Logger():
         self.runtime_data["test_loss"].append(loss)
 
     def append_train_acc(self, acc):
-        self.runtime_data["train_loss"].append(acc)
+        self.runtime_data["train_acc"].append(acc)
 
     def append_val_acc(self, acc):
-        self.runtime_data["val_loss"].append(acc)
+        self.runtime_data["val_acc"].append(acc)
         
     def append_test_acc(self, acc):
-        self.runtime_data["test_loss"].append(acc)
+        self.runtime_data["test_acc"].append(acc)
 
     # dumping the result as files
     def dump_model(self):

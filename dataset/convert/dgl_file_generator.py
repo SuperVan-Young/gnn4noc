@@ -264,19 +264,3 @@ class DGLFileGenerator:
         for i in range(bit):
             bin_tensor[:, i:i+1] = tensor % (2 ** (i+1))
         return bin_tensor
-
-
-    def categorize_float(self, tensor, category):
-        """map tensor to onehot category.
-        Input: tensor(N, 1), tensor(1, L)
-        Return: tensor(N, L + 1)
-        """
-        #TODO: decouple dataset and categorization
-        assert len(tensor.shape) == 2
-        assert tensor.shape[1] == 1
-        assert len(category.shape) == 2
-        assert category.shape[0] == 1
-        category_tensor = (tensor < category).int()   
-        category_tensor = torch.cat([category_tensor, torch.ones(tensor.shape[0], 1)], dim=1)
-        category_tensor = F.one_hot(category_tensor.argmax(dim=1))
-        return category_tensor
