@@ -158,7 +158,7 @@ class VanillaModel(nn.Module):
     """A demo GNN model for NoC congestion prediction.
     """
 
-    def __init__(self, h_dim=64):
+    def __init__(self, h_dim=64, num_labels=4):
         super().__init__()
         self.feature_gen = FeatureGen(h_dim)
         self.conv1 = HeteroGraphConv(h_dim)
@@ -168,7 +168,7 @@ class VanillaModel(nn.Module):
             nn.ReLU(),
             nn.Linear(h_dim, h_dim),
             nn.ReLU(),
-            nn.Linear(h_dim, 4)
+            nn.Linear(h_dim, num_labels)
         )
 
     
@@ -176,8 +176,8 @@ class VanillaModel(nn.Module):
         self.feature_gen(g)
         self.conv1(g)
         self.conv2(g)
-        packet_embed = dgl.readout_nodes(g, 'feat', op='mean', ntype='packet')
-        router_embed = dgl.readout_nodes(g, 'feat', op='mean', ntype='router')
-        embed = torch.concat([packet_embed, router_embed], dim=1)
-        pred = self.prediction_head(embed)
+        router_embed1 = dgl.readout_nodes(g, 'feat', op='sum', ntype='router')
+        router_embed2 = dgl.readout_nodes(g, 'feat', op='max', ntype='router')
+        router_embed = torch.concat([router_embed1, router_embed2], dim=-1)
+        pred = self.prediction_head(router_embed)
         return pred
