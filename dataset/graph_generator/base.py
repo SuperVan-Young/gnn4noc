@@ -75,7 +75,7 @@ class GraphGenerator():
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != "data":
                 continue
-            pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine
+            pkt = eattr["pkt"][0]  # the first pkt is fine
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
             routing = self.parser.routing_parser.get_routing_hops(u_pe, v_pe, pkt)
 
@@ -161,7 +161,7 @@ class GraphGenerator():
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != "data":
                 continue
-            pkt = list(eattr["pkt"].keys())[0]  # the first pkt is fine
+            pkt = eattr["pkt"][0]  # the first pkt is fine
             pid = pkt2id[pkt]
             flit[pid:pid+1, :] = eattr['size']
             freq[pid:pid+1, :] = 1 / G.nodes[u]['delay']

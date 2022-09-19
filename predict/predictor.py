@@ -1,10 +1,9 @@
 import os
-from pyexpat import model
+import torch
 import re
 import sys
 
-import torch
-sys.path.append("..")
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dataset.trace_parser.trace_parser import TraceParser
 from dataset.graph_generator.base import GraphGenerator
@@ -30,13 +29,13 @@ class LatencyPredictor():
         """
         # Run FOCUS to compile the benchmark
         focus_agent = FocusAgent(self.fake_trace, simulate=False)
-        focus_agent.run_focus(self.benchmark_path, self.array_size, self.flit_size, timeout=300)
+        focus_agent.run_focus(self.benchmark_path, self.array_size, self.flit_size, timeout=300, verbose=True)
 
         # Prepare trace parser
         taskname = self.get_taskname()
-        graph_path = focus_agent.get_op_graph_path()
-        spec_path = focus_agent.get_spec_path()
-        routing_path = focus_agent.get_routing_path()
+        graph_path = focus_agent.get_op_graph_path(taskname)
+        spec_path = focus_agent.get_spec_path(taskname)
+        routing_path = focus_agent.get_routing_path(taskname)
         outlog_path = None  # prediction
         trace_parser = TraceParser(graph_path, outlog_path, routing_path, spec_path)
 
@@ -49,7 +48,7 @@ class LatencyPredictor():
 
         for layer in layers:
             graph = graph_generator.generate_graph(layer, batch=0)
-            pred = model(graph)
+            pred = model(graph).argmax()
             congestion = model.label_to_congestion(pred)
 
             # calculate predicted latency
@@ -63,8 +62,8 @@ class LatencyPredictor():
         return latency
 
 if __name__ == "__main__":
-    benchmark_path = os.path.join(gc.gnn_root, "predict", "test_model.yaml")
-    model_path = os.path.join(gc.gnn_root, "train", "vanilla_1663153664", "model.pth")
+    benchmark_path = os.path.join(gc.gnn_root, "predict", "cw1_ci1_co1_bw0_bi0_fw2_fi2_fo4_dw1_di1_do1_n1.yaml")
+    model_path = os.path.join(gc.gnn_root, "train", "log", "vanilla_1663153664", "model.pth")
 
     latency_predictor = LatencyPredictor(benchmark_path, model_path, True)
     latency = latency_predictor.predict_latency()

@@ -7,6 +7,7 @@ class RoutingParser():
         self.routing_board_path = routing_board_path
         self.array_size = array_size
         self.routing_func = routing_func
+        self.__multicast_routing = None
 
 
     def get_routing_hops(self, src, dst, pid):

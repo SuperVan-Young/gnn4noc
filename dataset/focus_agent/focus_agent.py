@@ -17,20 +17,23 @@ class FocusAgent():
         self.fake_trace = fake_trace
         self.simulate = simulate
 
-    def run_focus(self, benchmark_path: str, array_size: int, flit_size: int, timeout=300):
+    def run_focus(self, benchmark_path: str, array_size: int, flit_size: int, timeout=300, verbose=False):
         """Run focus with timeout control.
         Raises: TimeoutError
         """
         focus_path = os.path.join(gc.focus_root, "focus.py")
         args = "d"
-        args = args + "s" if self.simulate else args
-        args = args + "g" if self.fake_trace else args
+        args = (args + "s") if self.simulate else args
+        args = (args + "g") if self.fake_trace else args
         command = f"python {focus_path} -bm {benchmark_path} -d {array_size} -b 1 \
                     -fr {flit_size}-{flit_size}-{flit_size} {args}"
 
         begin_time = time.time()
-        sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                shell=True, preexec_fn=os.setpgrp)
+        if verbose:
+            sp = subprocess.Popen(command, shell=True, preexec_fn=os.setpgrp)
+        else:
+            sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    shell=True, preexec_fn=os.setpgrp)
         try:
             sp.wait(timeout=timeout)
         except subprocess.TimeoutExpired:

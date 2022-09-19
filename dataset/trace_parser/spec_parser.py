@@ -5,11 +5,11 @@ class SpecParser():
     """Parse spec info."""
 
     def __init__(self, spec_path) -> None:
-        self.spec_path = spec_path
+        self.spatial_spec_path = spec_path
         self.spec_info = None
 
     def __parse_spec(self):
-        assert os.path.exists(self.spec_path)
+        assert os.path.exists(self.spatial_spec_path)
 
         self.spec_info = dict()
         with open(self.spatial_spec_path, "r") as f:
