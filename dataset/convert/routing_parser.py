@@ -8,12 +8,11 @@ class RoutingParser():
         self.array_size = array_size
         self.routing_func = routing_func
 
-        assert os.path.exists(self.routing_board_path)
-
-        self.__multicast_routing = self.__parse_routing_board()
-
 
     def get_routing_hops(self, src, dst, pid):
+        if self.__multicast_routing == None:
+            # parse multicast on demand
+            self.__parse_routing_board()
         if pid in self.__multicast_routing.keys():
             return self.__multicast_routing[pid]
         else:
@@ -60,6 +59,8 @@ class RoutingParser():
         """Parse routing board for all the multicast packets' routing.
         Returns: {pid -> [one-hop edges]}
         """
+        assert os.path.exists(self.routing_board_path)
+
         pid_to_edges = dict()
         with open(self.routing_board_path, "r") as f:
             line = f.readline()
@@ -79,4 +80,4 @@ class RoutingParser():
                 f.readline()
                 line = f.readline()
 
-        return pid_to_edges
+        self.__multicast_routing = pid_to_edges
