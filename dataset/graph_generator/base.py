@@ -42,6 +42,7 @@ class GraphGenerator():
         return graph
 
     def generate_label(self, layer=None, batch=None):
+        assert self.predict == False
         label = self.__gen_label(layer, batch)
         return label
 
@@ -191,6 +192,8 @@ class GraphGenerator():
         """Calculate congestion ratio.
         Return: Tensor(1,)
         """
+        raise NotImplementedError("get latency from parser, not edges.")
+        #FIXME: get latency from parser, not edges.
 
         wsrc = [n for n, attr in G.nodes(data=True) if attr["op_type"] == "wsrc"]
         assert len(wsrc) == 1
