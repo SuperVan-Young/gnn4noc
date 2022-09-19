@@ -90,6 +90,7 @@ def run_multiple_process():
 
 
 if __name__ == "__main__":
+    raise NotImplementedError("I haven't fixed this since reconstruction.")
     args = parse_args()
     set_global_control(args)
     if gc.run_focus:

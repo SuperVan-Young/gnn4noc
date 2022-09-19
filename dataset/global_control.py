@@ -12,9 +12,8 @@ simulator_root = os.path.join(focus_root, "simulator", "tasks")
 dataset_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(dataset_root)
 
-tasks_root = os.path.join(dataset_root, "tasks")
-if not os.path.exists(tasks_root):
-    os.mkdir(tasks_root)
+gnn_root = os.path.dirname(dataset_root)
+sys.path.append(gnn_root)
 
 data_root = os.path.join(dataset_root, "data")
 if not os.path.exists(data_root):
