@@ -11,10 +11,16 @@ class GraphParser():
         self.op_graph_path = op_graph_path
         self.__op_graph = None
 
-    def get_graph(self):
+    def get_graph(self, layer=None, batch=None):
         if self.__op_graph == None:
             self.__parse_graph()
-        return self.__op_graph.get_graph()
+        G = self.__op_graph.get_graph()
+        if layer != None and batch != None:
+            nodes = [n for n, attr in G.nodes(data=True)
+            if attr["layer"] == layer
+            and attr["batch"] == batch]
+            G = G.subgraph(nodes)
+        return G
 
     def get_layers(self):
         if self.__op_graph == None:
