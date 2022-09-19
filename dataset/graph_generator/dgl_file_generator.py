@@ -9,7 +9,6 @@ import torch.nn.functional as F
 import dgl
 import pickle as pkl
 
-from trace_analyzer import TraceAnalyzer
 import sys
 sys.path.append("..")
 import global_control as gc
@@ -35,7 +34,6 @@ class SmartDict(UserDict):
 class DGLFileGenerator:
     """Generate DGL files for training.
     """
-    
     def dump_data(self, trace_analyzer: TraceAnalyzer, layer:str, batch=0):
         """Map packets of one tile to the Router array and dump the data.
         Makes it easy to load for dataset.

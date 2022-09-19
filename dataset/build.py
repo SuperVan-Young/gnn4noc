@@ -8,8 +8,8 @@ import global_control as gc
 
 from focus_agent.multiprocess import run_focus
 from focus_agent.sampler import DataSampler
-from convert.trace_analyzer import TraceAnalyzer
-from convert.dgl_file_generator import DGLFileGenerator
+from dataset.trace_parser.trace_parser import TraceAnalyzer
+from trace_parser.dgl_file_generator import DGLFileGenerator
 
 def parse_args():
     parser = argparse.ArgumentParser(description="build")

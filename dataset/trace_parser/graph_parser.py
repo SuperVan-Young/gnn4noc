@@ -16,6 +16,12 @@ class GraphParser():
             self.__parse_graph()
         return self.__op_graph.get_graph()
 
+    def get_layers(self):
+        if self.__op_graph == None:
+            self.__parse_graph()
+        layers = {nattr['layer'] for n, nattr in self.__op_graph.get_graph().nodes(data=True)}
+        return layers
+
     def __parse_graph(self):
         assert os.path.exists(self.op_graph_path)
 
