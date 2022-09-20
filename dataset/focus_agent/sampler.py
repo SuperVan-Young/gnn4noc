@@ -1,5 +1,7 @@
 import os
 import random
+import yaml
+import re
 
 def sample_within_range(distribution, min, max):
     """Sample from given distribution, but only keep valid value from (min, max)
@@ -14,8 +16,84 @@ def sample_within_range(distribution, min, max):
             return random.randint(min, max)  # return a default distribution
     return x
 
+class LayerSample():
+    """ An easy-to-use representation of a fake layer's computation info.
+    """
+    def __init__(self, args):
+        self.params = None
+        if isinstance(args, str):
+            self.params = self.__parse_str(args)
+        elif isinstance(args, dict):
+            self.params = self.__parse_dict(args)
+        else:
+            raise NotImplementedError
+        
 
-class DataSampler():
+    def __repr__(self):
+        p = self.params
+        s = f"cw{p['cnt_w']}_ci{p['cnt_i']}_co{p['cnt_o']}" +\
+            f"_bw{p['broadcast_w']}_bi{p['broadcast_i']}" +\
+            f"_fw{p['flit_w']}_fi{p['flit_i']}_fo{p['flit_o']}" +\
+            f"_dw{p['delay_w']}_di{p['delay_i']}_do{p['delay_o']}" +\
+            f"_n{p['worker']}"
+        return s
+
+    def dump(self, save_root):
+        s = self.__repr__()
+        savepath = os.path.join(save_root, f"{s}.yaml")
+        data = {s: [{s: 2}]}
+        with open(savepath, 'w') as f:
+            yaml.dump(data, f)
+
+    def __empty_params(self):
+        empty_params = {
+            'cnt_w': None,
+            'cnt_i': None,
+            'cnt_o': None,
+            'flit_w': None,
+            'flit_i': None,
+            'flit_o': None,
+            'delay_w': None,
+            'delay_i': None,
+            'delay_o': None,
+            'broadcast_w': None,
+            'broadcast_i': None,
+            'worker': None,
+        }
+        return empty_params
+
+    def __parse_str(self, s):
+        params = self.__empty_params()
+        short2full = {
+            "cw": "cnt_w",
+            "ci": "cnt_i",
+            "co": "cnt_o",
+            "bw": "broadcast_w",
+            "bi": "broadcast_i",
+            "fw": "flit_w",
+            "fi": "flit_i",
+            "fo": "flit_o",
+            "dw": "delay_w",
+            "di": "delay_i",
+            "do": "delay_o",
+            "n": "worker",
+        }
+        for t in s.split('_'):
+            i = re.search('\d+', t).span()[0]
+            key = short2full[t[:i]]
+            val = int(t[i:])
+            params[key] = val
+        assert None not in params.values()
+        return params
+
+    def __parse_dict(self, args):
+        params = self.__empty_params()
+        for k in params.keys():
+            params[k] = args[k]
+        return params
+
+
+class LayerSampler():
     def __init__(self) -> None:
         random.seed(114514)
         # set ranges, which should run successfully within 5 min
@@ -30,7 +108,7 @@ class DataSampler():
         flit = self._gen_flit()
         worker = self._gen_worker()
         bcast = self._gen_broadcast()
-        ret = {
+        params = {
             'cnt_w': cnt[0],
             'cnt_i': cnt[1],
             'cnt_o': cnt[2],
@@ -44,7 +122,7 @@ class DataSampler():
             'broadcast_i': bcast[1],
             'worker': worker,
         }
-        layer = self._encode_string(ret)
+        layer = LayerSample(params)
         return layer
 
     def _gen_dataflow(self):
@@ -129,17 +207,11 @@ class DataSampler():
         Use uniform distribution between 1 and 16.
         """
         return int(random.uniform(1, 17))
-
-    def _encode_string(self, args):
-        """Encode args into string"""
-        s = f"cw{args['cnt_w']}_ci{args['cnt_i']}_co{args['cnt_o']}" +\
-            f"_bw{args['broadcast_w']}_bi{args['broadcast_i']}" +\
-            f"_fw{args['flit_w']}_fi{args['flit_i']}_fo{args['flit_o']}" +\
-            f"_dw{args['delay_w']}_di{args['delay_i']}_do{args['delay_o']}" +\
-            f"_n{args['worker']}"
-        return s
+        
 
 if __name__ == "__main__":
     # Testing
-    sampler = DataSampler()
+    sampler = LayerSampler()
+    layer = sampler.get_random_sample()
     print(sampler.get_random_sample())
+    layer.dump(".")
