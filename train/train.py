@@ -16,18 +16,23 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 #------------------ Global Config --------------------------------#
 
+device = "cpu"
+verbosity = 1  # 0 for debugging
+
+# training configs
+epoches = 50
+learning_rate = 3e-4
+batch_size = 4
+
+# model configs
+h_dim = 64
+base = 2.0
 label_min = -2
 label_max = 9
-num_labels = label_max - label_min  # [2 ** min, 2 ** max)
-
-device = "cpu"
-epoches = 50
-batch_size = 4
-verbosity = 1  # 0 for debugging
 
 #------------------ Initalize Dataset ----------------------------#
 
-dataset = NoCDataset(True, label_min, label_max)
+dataset = NoCDataset()
 
 num_examples = len(dataset)
 num_train = int(num_examples * 0.9)
@@ -43,16 +48,29 @@ test_dataloader = GraphDataLoader(
 #------------------ Initialize Model ----------------------------#
 
 model = VanillaModel(h_dim=64, label_min=label_min, label_max=label_max).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+#------------------ Initialize Logger ----------------------------#
+
 logger = Logger("vanilla", model, verbosity=verbosity)
+
+logger.info(f"hidden dim = {h_dim}")
+logger.info(f"base = {base}")
+logger.info(f"label_min = {label_min}")
+logger.info(f"label_max = {label_max}")
+logger.info(f"epoches = {epoches}")
+logger.info(f"learning rate = {learning_rate}")
+
+#------------------ Training Model ----------------------------#
 
 def feed_data(dataloader, train=False):
     losses = []
     correct = 0
     total = 0
 
-    for batched_graph, labels in dataloader:
+    for batched_graph, congestion in dataloader:
         pred = model(batched_graph)
+        labels = model.congestion_to_label(congestion)
         loss = F.cross_entropy(pred, labels)
         if train:
             optimizer.zero_grad()
@@ -68,8 +86,6 @@ def feed_data(dataloader, train=False):
     avg_loss = np.average(losses)
     avg_acc = correct / total
     return avg_loss, avg_acc
-    
-#------------------ Training Model ----------------------------#
 
 for e in range(epoches):
     logger.info(f"Epoch = {e}")
@@ -109,4 +125,4 @@ congestion_dataloader = GraphDataLoader(
 for g, cong in congestion_dataloader:
     pred = model(g)
     pred = model.label_to_congestion(pred.argmax(1).item())
-    logger.info(f"Ground Truth = {cong}; Pred = {pred}")
+    logger.info(f"Ground Truth = {cong.item()}, Pred = {pred}")

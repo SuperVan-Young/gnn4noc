@@ -6,46 +6,31 @@ from dgl.data import DGLDataset
 import numpy as np
 import torch
 
+import global_control as gc
+
 class NoCDataset(DGLDataset):
     """#TODO: Could the dataset reside on memory?
     """
-    def __init__(self, use_label=True, label_min=-2, label_max=9):
+    def __init__(self):
         super().__init__(name="NoC")
-        self.use_label = use_label
-        self.num_classes = label_max - label_min
-        self.__ref_labels = torch.tensor(2.0 ** np.arange(label_min, label_max-1))
 
     def process(self):
-        self.data_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        self.data_root = gc.data_root
         assert os.path.exists(self.data_root)
         self.samples = [file for _, _, file in os.walk(self.data_root)][0]
-
 
     def __getitem__(self, i):
         """Returns: 
         graph: dgl.HeteroGraph
-        congestion: Tensor(num_classes,)
+        congestion: Tensor(1, )
         """
         sample_path = os.path.join(self.data_root, self.samples[i])
         with open(sample_path, "rb") as f:
             graph, congestion = pkl.load(f)
-        if self.use_label:
-            label = self.__c2l(congestion)
-            return graph, label
-        else:
-            return graph, congestion
+        return graph, congestion
 
     def __len__(self):
         return len(self.samples)
-
-
-    def __c2l(self, congestion):
-        """Convert Congestion into #num_labels category"""
-        label = (congestion < self.__ref_labels).int()
-        label = torch.cat([label, torch.ones(1,)])
-        label = torch.argmax(label)
-        return label
-
 
 if __name__ == "__main__":
     dataset = NoCDataset()

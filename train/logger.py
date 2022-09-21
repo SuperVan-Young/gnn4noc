@@ -13,7 +13,8 @@ if not os.path.exists(log_root):
 class Logger():
     def __init__(self, name, model, verbosity=1) -> None:
         self.name = name
-        self.log_root = os.path.join(log_root, f"{name}_{int(time.time())}")
+        timestamp = time.strftime("%Y%m%d%H%M%S", time.localtime())
+        self.log_root = os.path.join(log_root, f"{name}_{timestamp}")
         if not os.path.exists(self.log_root):
             os.mkdir(self.log_root)
 
@@ -89,5 +90,7 @@ class Logger():
         assert name in self.runtime_data.keys()
         ls = self.runtime_data[name]
         plt.plot(ls)
+        plt.title(name)
         figfile = os.path.join(self.log_root, f"{name}.png")
         plt.savefig(figfile)
+        plt.clf()

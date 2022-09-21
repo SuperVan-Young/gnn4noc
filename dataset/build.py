@@ -42,7 +42,7 @@ def build():
         print("Build: running FOCUS ...")
 
         sampler = LayerSampler()
-        pool = mp.Pool(gc.build_num_process)
+        pool = mp.Pool(gc.build_num_process, maxtasksperchild=1)
         for i in range(gc.build_num_samples):
             layer = sampler.get_random_sample()
             taskname = str(layer) + f"_b1w{gc.build_flit_size}_{gc.build_array_size}x{gc.build_array_size}"

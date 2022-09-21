@@ -1,11 +1,9 @@
-from cProfile import label
-import os
-from turtle import forward
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import dgl
 import dgl.function as fn
+import numpy as np
 
 class LinearBlock(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -17,6 +15,7 @@ class LinearBlock(nn.Module):
     
     def forward(self, x):
         return self.lin(x)
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, h_dim, input_dim=None):
@@ -58,58 +57,6 @@ class FeatureGen(nn.Module):
         g.nodes['packet'].data['feat'] = hyper_node_feat
 
 
-class MessagePassing(nn.Module):
-    """Passing message through a paticular edge type.
-    Warning: Deprecated
-    """
-    def __init__(self, h_dim, etype):
-        super().__init__()
-        self.mlp_m = ResidualBlock(h_dim)  # message
-        self.lin_r = nn.Sequential(
-            nn.Linear(4*h_dim, h_dim),
-            nn.LeakyReLU(0.1),
-        )  # reduce
-        self.etype = etype
-
-        etype2srctype = {
-            "pass": "packet",
-            "transfer": "router",
-            "connect": "router",
-            "backpressure": "router",
-        }
-        etype2dsttype = {
-            "pass": "router",
-            "transfer": "packet",
-            "connect": "router",
-            "backpressure": "router",
-        }
-        self.srctype = etype2srctype[etype]
-        self.dsttype = etype2dsttype[etype]
-
-    def forward(self, g):
-        srcfeat = g.nodes[self.srctype].data['feat']
-        g.nodes[self.srctype].data['h'] = self.mlp_m(srcfeat)
-        g.multi_update_all(
-            {self.etype: (fn.copy_u('h', 'm'), fn.sum('m', 'h_sum'))},
-            "sum"
-        )
-        g.multi_update_all(
-            {self.etype: (fn.copy_u('h', 'm'), fn.max('m', 'h_max'))},
-            "sum"
-        )
-        g.multi_update_all(
-            {self.etype: (fn.copy_u('h', 'm'), fn.mean('m', 'h_mean'))},
-            "sum"
-        )
-        
-        h_sum = g.nodes[self.dsttype].data['h_sum']
-        h_max = g.nodes[self.dsttype].data['h_max']
-        h_mean = g.nodes[self.dsttype].data['h_mean']
-
-        dstfeat = g.nodes[self.dsttype].data['feat']
-        h_concat = torch.concat([h_sum, h_max, h_mean, dstfeat], dim=-1)
-        dstfeat = dstfeat + self.lin_r(h_concat)  # residual connection
-
 class HeteroGraphConv(nn.Module):
     """Simplified version of the above message passing"""
     def __init__(self, h_dim):
@@ -143,25 +90,13 @@ class HeteroGraphConv(nn.Module):
         return {'feat': nodes.data['feat'] + self.lin_p(agged)}
 
 
-class GraphEmbedding(nn.Module):
-    """Aggregate Graph level information.
-    For simplicity, we use mean reduction.
-    """
-    def __init__(self) -> None:
-        super().__init__()
-
-    def forward(self, g):
-        hyper_info = torch.mean(g.nodes['packet'].data['feat'], dim=-2)
-        node_info = torch.mean(g.nodes['router'].data['feat'], dim=-2)
-        return torch.cat((hyper_info, node_info))
-
-
 class VanillaModel(nn.Module):
     """A demo GNN model for NoC congestion prediction.
     """
 
-    def __init__(self, h_dim=64, label_min=-2, label_max=9):
+    def __init__(self, h_dim=64, base=2.0, label_min=-2, label_max=9):
         super().__init__()
+        self.base = base
         self.label_min = label_min
         self.label_max = label_max
         num_labels = label_max - label_min
@@ -175,6 +110,7 @@ class VanillaModel(nn.Module):
             nn.ReLU(),
             nn.Linear(h_dim, num_labels)
         )
+        self.__ref_labels = torch.tensor(base ** np.arange(label_min, label_max-1))
 
     
     def forward(self, g):
@@ -187,6 +123,16 @@ class VanillaModel(nn.Module):
         pred = self.prediction_head(router_embed)
         return pred
 
+    def congestion_to_label(self, congestion):
+        if isinstance(congestion, float):
+            label = (congestion < self.__ref_labels).int()
+            label = torch.cat([label, torch.ones(1,)])
+            label = torch.argmax(label)
+        elif isinstance(congestion, torch.Tensor):
+            label = (congestion.unsqueeze(-1) < self.__ref_labels.unsqueeze(0)).int()
+            label = torch.cat([label, torch.ones(label.shape[0], 1,)], dim=1)
+            label = torch.argmax(label, dim=1)
+        return label
     
     def label_to_congestion(self, label: int):
-        return 2.0 ** (self.label_min + label - 1) if label != 0 else 0  # left
+        return self.base ** (self.label_min + label - 1) if label != 0 else 0  # left
