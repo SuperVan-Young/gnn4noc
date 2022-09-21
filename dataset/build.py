@@ -42,19 +42,10 @@ def build():
         print("Build: running FOCUS ...")
 
         sampler = LayerSampler()
-        pool = mp.Pool(gc.build_num_process, maxtasksperchild=1)
-        for i in range(gc.build_num_samples):
-            layer = sampler.get_random_sample()
-            taskname = str(layer) + f"_b1w{gc.build_flit_size}_{gc.build_array_size}x{gc.build_array_size}"
-            task_root = os.path.join(gc.tasks_root, taskname)
-            if not os.path.exists(task_root):
-                os.mkdir(task_root)
-                
-            layer.dump(task_root, "model")
-            pool.apply_async(run_focus, args=(taskname, i, ))
-        
-        pool.close()
-        pool.join()
+        layers = [sampler.get_random_sample() for i in range(gc.build_num_samples)]
+
+        with mp.Pool(processes=gc.build_num_process) as pool:
+            pool.map(run_focus, layers)
 
         print("Build: running FOCUS complete!")
 
@@ -66,9 +57,16 @@ def build():
         print("Build: converting data complete!")
 
 
-def run_focus(taskname, num):
-    """Run simulation, fetch traces, clean up if fails.
+def run_focus(layer):
+    """Dump model, run simulation, fetch traces, clean up if fails.
     """
+    taskname = str(layer) + f"_b1w{gc.build_flit_size}_{gc.build_array_size}x{gc.build_array_size}"
+    task_root = os.path.join(gc.tasks_root, taskname)
+    if not os.path.exists(task_root):
+        os.mkdir(task_root)
+        
+    layer.dump(task_root, "model")
+
     task_root = os.path.join(gc.tasks_root, taskname)
     benchmark_path =  os.path.join(task_root, "model.yaml")
     agent = FocusAgent(fake_trace=True, simulate=True)
@@ -90,16 +88,16 @@ def run_focus(taskname, num):
         os.system(f"cp {spec_path} {task_root}")
     
     except TimeoutError:
-        print(f"Build: simulating {num}-th layer {taskname} timeout.")
+        print(f"Build: simulating layer {taskname} timeout.")
         os.system(f"rm -r {task_root}")
         return    
 
     except:
-        print(f"Build: simulating {num}-th layer {taskname} failed.")
+        print(f"Build: simulating layer {taskname} failed.")
         os.system(f"rm -r {task_root}")
         return    
     
-    print(f"Build: simulating {num}-th layer {taskname} successfully!")
+    print(f"Build: simulating layer {taskname} successfully!")
 
 def convert_data():
     for root, dirs, files in os.walk(gc.tasks_root):
@@ -126,7 +124,7 @@ def convert_data():
         graph = graph_generator.generate_graph()
         label = graph_generator.generate_label()
         savepath = os.path.join(gc.data_root, f"{taskname}.pkl")
-        graph_generator.save_data()
+        graph_generator.save_data(savepath, graph, label)
 
 
 

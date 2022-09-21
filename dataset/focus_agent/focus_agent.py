@@ -1,4 +1,5 @@
 import os
+from signal import signal
 import sys
 sys.path.append("..")
 
@@ -30,17 +31,19 @@ class FocusAgent():
 
         begin_time = time.time()
         if verbose:
-            sp = subprocess.Popen(command, shell=True, preexec_fn=os.setpgrp)
+            sp = subprocess.Popen(command, shell=True, start_new_session=True)
         else:
             sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    shell=True, preexec_fn=os.setpgrp)
+                                    shell=True, start_new_session=True)
         try:
             sp.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             if verbose:
                 print("Info: running FOCUS timeout.")
+            os.killpg(os.getpgid(sp.pid), signal.SIGTERM)
             raise TimeoutError
         except:
+            os.killpg(os.getpgid(sp.pid), signal.SIGTERM)
             raise RuntimeError            
             
         end_time = time.time()
