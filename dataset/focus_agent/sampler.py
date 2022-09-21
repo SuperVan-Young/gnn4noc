@@ -38,9 +38,11 @@ class LayerSample():
             f"_n{p['worker']}"
         return s
 
-    def dump(self, save_root):
+    def dump(self, save_root, model_name=None):
         s = self.__repr__()
-        savepath = os.path.join(save_root, f"{s}.yaml")
+        if model_name == None:
+            model_name = s
+        savepath = os.path.join(save_root, f"{model_name}.yaml")
         data = {s: [{s: 2}]}
         with open(savepath, 'w') as f:
             yaml.dump(data, f)

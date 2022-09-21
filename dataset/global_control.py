@@ -15,15 +15,23 @@ sys.path.append(dataset_root)
 gnn_root = os.path.dirname(dataset_root)
 sys.path.append(gnn_root)
 
+tasks_root = os.path.join(dataset_root, "tasks")
+if not os.path.exists(tasks_root):
+    os.mkdir(tasks_root)
+
 data_root = os.path.join(dataset_root, "data")
 if not os.path.exists(data_root):
     os.mkdir(data_root)
 
-# ------------------ Runtime configs --------------------
-run_focus = False
+# ------------------ Build Runtime configs --------------------
+build_run_focus = None
 
-convert = False
+build_convert = None
 
-num_samples = 1
+build_num_samples = None
 
-num_process = 16
+build_num_process = None
+
+build_array_size = None
+
+build_flit_size = None

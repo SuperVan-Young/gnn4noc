@@ -37,13 +37,15 @@ class FocusAgent():
         try:
             sp.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            print("Info: running FOCUS timeout.")
+            if verbose:
+                print("Info: running FOCUS timeout.")
             raise TimeoutError
         except:
             raise RuntimeError            
             
         end_time = time.time()
-        print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
+        if verbose:
+            print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
 
     def get_op_graph_path(self, taskname):
         path = os.path.join(gc.op_graph_root, f"op_graph_{taskname}.gpickle")
