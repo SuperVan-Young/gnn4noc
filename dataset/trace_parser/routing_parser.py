@@ -73,7 +73,7 @@ class RoutingParser():
                 line = f.readline()
                 while len(line.strip("\n ")):
                     u, v = [int(x) for x in line.split(" ")]
-                    edges += self.__parse_unicast_hops(u, v, self.routing_func)
+                    edges += self.__parse_unicast_hops(u, v)
                     line = f.readline()
 
                 pid_to_edges[pid] = edges

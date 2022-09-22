@@ -144,16 +144,21 @@ class HyperGraphGenerator(GraphGenerator):
         workers  = [n for n, op_type in G.nodes(data="op_type")
                 if op_type == 'worker']
 
+        node2pe = lambda x: G.nodes[x]["p_pe"]
+
         max_slope = 0  # throughput \mu = #cnt / #delay_total
                        # k = \lambda / \mu = #delay_total / (#cnt * #delay)
         for s in srcs:
             cnt = G.nodes[s]['cnt']
             delay = G.nodes[s]['delay']
+            sid = node2pe(s)
 
             for w in workers:
                 p = self.parser.outlog_parser
-                end_cycles = map(lambda pid: p.get_latency(s, w, pid)["end_cycle"],
-                                 G.edges[s, w]['pkt'])
+                wid = node2pe(w)
+                pid2lat = lambda pid: p.get_latency(sid, wid, pid)["end_cycle"]
+
+                end_cycles = [pid2lat(pid) for pid in G.edges[s, w]['pkt']]
                 duration = max(end_cycles) - min(end_cycles)
                 slope = duration / (cnt * delay)
                 max_slope = max(max_slope, slope)

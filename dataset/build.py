@@ -72,47 +72,43 @@ def run_focus(layer):
     agent = FocusAgent(fake_trace=True, simulate=True)
     
     try:
-        agent.run_focus(benchmark_path, gc.build_array_size, gc.build_flit_size)
-
-        graph_path = agent.get_op_graph_path(taskname)
-        assert graph_path != None
-        os.system(f"cp {graph_path} {task_root}/op_graph.gpickle")
-        outlog_path = agent.get_outlog_path(taskname)
-        assert outlog_path != None
-        os.system(f"cp {outlog_path} {task_root}")
-        routing_path = agent.get_routing_path(taskname)
-        assert routing_path != None
-        os.system(f"cp {routing_path} {task_root}")
-        spec_path = agent.get_spec_path(taskname)
-        assert spec_path != None
-        os.system(f"cp {spec_path} {task_root}")
-    
+        agent.run_focus(benchmark_path, gc.build_array_size, gc.build_flit_size, timeout=300)
     except TimeoutError:
         print(f"Build: simulating layer {taskname} timeout.")
         os.system(f"rm -r {task_root}")
-        return    
+        return
 
-    except:
-        print(f"Build: simulating layer {taskname} failed.")
-        os.system(f"rm -r {task_root}")
-        return    
+    graph_path = agent.get_op_graph_path(taskname)
+    assert graph_path != None
+    os.system(f"cp {graph_path} {task_root}/op_graph.gpickle")
+    outlog_path = agent.get_outlog_path(taskname)
+    assert outlog_path != None
+    os.system(f"cp {outlog_path} {task_root}")
+    routing_path = agent.get_routing_path(taskname)
+    assert routing_path != None
+    os.system(f"cp {routing_path} {task_root}")
+    spec_path = agent.get_spec_path(taskname)
+    assert spec_path != None
+    os.system(f"cp {spec_path} {task_root}")
     
     print(f"Build: simulating layer {taskname} successfully!")
 
 def convert_data():
-    for root, dirs, files in os.walk(gc.tasks_root):
-        if root == gc.tasks_root:
-            continue
-        taskname = os.path.split(root)[1]
+    tasknames = next(os.walk(gc.tasks_root))[1]
+
+    for taskname in tasknames:
+        root = os.path.join(gc.tasks_root, taskname)
 
         try:
-            assert 'op_graph.gpickle' in files
-            assert 'out.log' in files
-            assert 'routing_board' in files
-            assert 'spatial_spec' in files
+            files = ['op_graph.gpickle', 'out.log', 'routing_board', 'spatial_spec']
+            for file in files:
+                assert os.path.exists(os.path.join(root, file))
         except:
-            print("Build: warning, missing data during conversion.")
+            print(f"Build: missing data when converting {taskname}.")
+            os.system(f"rm -r {root}")
             continue
+        
+        print(f"Converting {taskname}")
 
         graph_path = os.path.join(root, 'op_graph.gpickle')
         outlog_path = os.path.join(root, 'out.log')
@@ -120,7 +116,7 @@ def convert_data():
         spec_path = os.path.join(root, 'spatial_spec')
         trace_parser = TraceParser(graph_path, outlog_path, routing_path, spec_path)
 
-        graph_generator = HyperGraphGenerator(trace_parser, predict=True)
+        graph_generator = HyperGraphGenerator(trace_parser, predict=False)
         graph = graph_generator.generate_graph()
         label = graph_generator.generate_label()
         savepath = os.path.join(gc.data_root, f"{taskname}.pkl")

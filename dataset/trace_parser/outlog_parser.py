@@ -6,9 +6,9 @@ class OutlogParser():
         self.__pid_to_latency = None
 
     def get_latency(self, src, dst, pid):
-        if self.pid_to_latency == None:
+        if self.__pid_to_latency == None:
             self.__parse_out_log()
-        return self.__pid_to_latency[(dst, pid)]
+        return self.__pid_to_latency[(pid, dst)]
 
     def get_total_latency(self):
         assert os.path.exists(self.out_log_path)

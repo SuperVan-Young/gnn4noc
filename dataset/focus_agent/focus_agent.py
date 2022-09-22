@@ -1,5 +1,5 @@
 import os
-from signal import signal
+import signal
 import sys
 sys.path.append("..")
 
@@ -30,21 +30,16 @@ class FocusAgent():
                     -fr {flit_size}-{flit_size}-{flit_size} {args}"
 
         begin_time = time.time()
-        if verbose:
-            sp = subprocess.Popen(command, shell=True, start_new_session=True)
-        else:
-            sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    shell=True, start_new_session=True)
+        sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                shell=True, start_new_session=True)
         try:
             sp.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             if verbose:
-                print("Info: running FOCUS timeout.")
+                print("Warning: running FOCUS timeout.")
             os.killpg(os.getpgid(sp.pid), signal.SIGTERM)
+            sp.wait()
             raise TimeoutError
-        except:
-            os.killpg(os.getpgid(sp.pid), signal.SIGTERM)
-            raise RuntimeError            
             
         end_time = time.time()
         if verbose:
