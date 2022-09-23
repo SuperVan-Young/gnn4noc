@@ -30,7 +30,7 @@ class HyperGraphGenerator(GraphGenerator):
         packet_to_router = dict()  # pid: rids
         router_to_router = dict()  # rid: rids
 
-        pkt2id = SmartDict()
+        pkt2id = SmartDict()  # FIRST packet: pid
         rt2id = SmartDict()
 
         for u, v, eattr in G.edges(data=True):
@@ -116,18 +116,19 @@ class HyperGraphGenerator(GraphGenerator):
         - flit: size of flit (binarized float) dim=32
         """
         num_packets = len(pkt2id)
-        freq = torch.zeros(num_packets, 1)
-        flit = torch.zeros(num_packets, 1)
+        freq = torch.zeros(num_packets)
+        flit = torch.zeros(num_packets)
 
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != "data":
                 continue
             pkt = eattr["pkt"][0]  # the first pkt is fine
             pid = pkt2id[pkt]
-            flit[pid:pid+1, :] = eattr['size']
-            freq[pid:pid+1, :] = 1 / G.nodes[u]['delay']
+            flit[pid:pid+1] = eattr['size']
+            freq[pid:pid+1] = 1 / G.nodes[u]['delay']
 
         flit = binarize_float(flit, 32)
+        freq = freq.unsqueeze(-1)
 
         return {
             "flit": flit.float(),

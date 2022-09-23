@@ -36,7 +36,6 @@ def binarize_float(tensor, bit):
     for i in range(bit):
         q = tensor % (2 ** (i+1))
         q = torch.div(q, 2 ** i, rounding_mode='floor')
-        q = q.unsqueeze(-1)
         quantity_tensors.append(q)
 
     bin_tensor = torch.stack(quantity_tensors, dim=-1).float()

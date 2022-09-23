@@ -116,12 +116,14 @@ def convert_data():
         spec_path = os.path.join(root, 'spatial_spec')
         trace_parser = TraceParser(graph_path, outlog_path, routing_path, spec_path)
 
-        graph_generator = HyperGraphGenerator(trace_parser, predict=False)
-        graph = graph_generator.generate_graph()
-        label = graph_generator.generate_label()
-        savepath = os.path.join(gc.data_root, f"{taskname}.pkl")
-        graph_generator.save_data(savepath, graph, label)
-
+        try:
+            graph_generator = HyperGraphGenerator(trace_parser, predict=False)
+            graph = graph_generator.generate_graph()
+            label = graph_generator.generate_label()
+            savepath = os.path.join(gc.data_root, f"{taskname}.pkl")
+            graph_generator.save_data(savepath, graph, label)
+        except:
+            print(f"Info: Error in converting {taskname}")
 
 
 if __name__ == "__main__":
