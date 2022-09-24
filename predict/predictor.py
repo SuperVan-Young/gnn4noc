@@ -4,6 +4,7 @@ import re
 import sys
 import random
 import time
+import multiprocessing as mp
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -12,17 +13,6 @@ from dataset.graph_generator.hyper import HyperGraphGenerator
 from dataset.focus_agent.focus_agent import FocusAgent
 from dataset.focus_agent.sampler import LayerSample, LayerSampler
 import dataset.global_control as gc
-
-class WorkerSampler(LayerSampler):
-    def __init__(self) -> None:
-        super().__init__()
-        random.seed(time.time())
-
-    def _gen_worker(self):
-        """Generate #workers
-        Use uniform distribution between 16 and 60.
-        """
-        return int(random.uniform(16, 60))
 
 class LatencyPredictor():
     def __init__(self, model_path: str, fake_trace: bool, simulate: bool) -> None:
@@ -35,8 +25,6 @@ class LatencyPredictor():
     def predict_latency(self, benchmark_path: str):
         """Returns: predicted cycles, actual cycles (None if self.simulate == False)
         """
-        print(f"Info: Running {benchmark_path}")
-
         # Run FOCUS to compile the benchmark
         focus_agent = FocusAgent(self.fake_trace, self.simulate)
         try:
@@ -78,27 +66,49 @@ class LatencyPredictor():
             latency = cnt * delay * (1 + congestion) + delay
             
             predicted_latency += int(latency)
-        
-        true_latency = trace_parser.outlog_parser.get_total_latency() if self.simulate else None
+
+        try:
+            true_latency = trace_parser.outlog_parser.get_total_latency() if self.simulate else None
+        except:
+            print(f"Info: failed to fetch true latency for {benchmark_path}")
+            true_latency = None
 
         return predicted_latency, true_latency
+
+# scripts to test more workers with multiple processes
+class WorkerSampler(LayerSampler):
+    def __init__(self) -> None:
+        super().__init__()
+        random.seed(time.time())
+
+    def _gen_worker(self):
+        """Generate #workers
+        Use uniform distribution between 16 and 60.
+        """
+        return int(random.uniform(16, 60))
+
+def target(layer):
+    save_root = os.path.join(gc.gnn_root, "predict", "tmp")
+    if not os.path.exists(save_root):
+        os.mkdir(save_root)
+    layer.dump(save_root)
+    layer_path = os.path.join(save_root, str(layer)+".yaml")
+
+    model_path = os.path.join(gc.gnn_root, "train/log/vanilla_20220923095950/model.pth")
+    predictor = LatencyPredictor(model_path, fake_trace=True, simulate=True)
+    predicted_latency, true_latency = predictor.predict_latency(layer_path)
+    return predicted_latency, true_latency
 
 def test_more_workers():
     test_cnt = 300
     sampler = WorkerSampler()
-    save_root = os.path.join(gc.gnn_root, "predict", "tmp")
-    if not os.path.exists(save_root):
-        os.mkdir(save_root)
-    model_path = os.path.join(gc.gnn_root, "train/log/vanilla_20220923095950/model.pth")
-    predictor = LatencyPredictor(model_path, fake_trace=True, simulate=True)
+    samples = [sampler.get_random_sample() for i in range(test_cnt)]
+
+    with mp.Pool(16) as pool:
+        results = pool.map(target, samples)
     
-    for i in range(test_cnt):
-        layer = sampler.get_random_sample()
-        layer.dump(save_root)
-        layer_path = os.path.join(save_root, str(layer)+".yaml")
-
-        predicted_latency, true_latency = predictor.predict_latency(layer_path)
-
+    for layer, lat in zip(samples, results):
+        predicted_latency, true_latency = lat
         print(f"Layer config: {str(layer)}")
         print(f"Predicted latency: {predicted_latency}")
         print(f"true latency     : {true_latency}")

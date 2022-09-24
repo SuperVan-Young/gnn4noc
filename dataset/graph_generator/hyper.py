@@ -124,6 +124,8 @@ class HyperGraphGenerator(GraphGenerator):
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != "data":
                 continue
+            if (len(eattr["pkt"]) == 0):
+                continue  # could happen when insrc and worker on the same pe
             pkt = eattr["pkt"][0]  # the first pkt is fine
             pid = pkt2id[pkt]
             flit[pid:pid+1] = eattr['size']
