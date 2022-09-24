@@ -5,3 +5,4 @@ test.ipynb
 dataset/tasks
 .vscode/*
 train/log/*
+predict/tmp
