@@ -39,7 +39,11 @@ class LatencyPredictor():
 
         # Run FOCUS to compile the benchmark
         focus_agent = FocusAgent(self.fake_trace, self.simulate)
-        focus_agent.run_focus(benchmark_path, self.array_size, self.flit_size, timeout=300, verbose=True)
+        try:
+            focus_agent.run_focus(benchmark_path, self.array_size, self.flit_size, timeout=300, verbose=True)
+        except TimeoutError:
+            print(f"Info: timeout when running {benchmark_path}, return invalid data")
+            return None, None
 
         # Prepare trace parser
         taskname = os.path.split(benchmark_path)[1]
@@ -73,7 +77,7 @@ class LatencyPredictor():
             cnt, delay = G.nodes[w]['cnt'], G.nodes[w]['delay']
             latency = cnt * delay * (1 + congestion) + delay
             
-            predicted_latency += latency
+            predicted_latency += int(latency)
         
         true_latency = trace_parser.outlog_parser.get_total_latency() if self.simulate else None
 

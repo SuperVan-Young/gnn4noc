@@ -36,6 +36,8 @@ class HyperGraphGenerator(GraphGenerator):
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != "data":
                 continue
+            if (len(eattr["pkt"]) == 0):
+                continue  # could happen when insrc and worker on the same pe
             pkt = eattr["pkt"][0]  # the first pkt is fine
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
             routing = self.parser.routing_parser.get_routing_hops(u_pe, v_pe, pkt)
