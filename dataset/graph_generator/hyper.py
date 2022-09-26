@@ -1,6 +1,5 @@
 import os
 import sys
-from xml.dom.minicompat import NodeList
 sys.path.append("..")
 
 import networkx as nx

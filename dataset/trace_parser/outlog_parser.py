@@ -6,11 +6,16 @@ class OutlogParser():
         self.__pid_to_latency = None
 
     def get_latency(self, src, dst, pid):
+        """Get a packet's latency.
+        src, dst should be physical core number. use p_pe attr.
+        """
         if self.__pid_to_latency == None:
             self.__parse_out_log()
         return self.__pid_to_latency[(pid, dst)]
 
     def get_total_latency(self):
+        """Get latency of overall task
+        """
         assert os.path.exists(self.out_log_path)
 
         line = None
