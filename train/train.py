@@ -8,8 +8,9 @@ import torch.nn.functional as F
 import numpy as np
 
 from dataset.dataset import NoCDataset
-from model.vanilla import VanillaModel
+from model.hyper_graph_model import HyperGraphModel
 from logger import Logger
+from tqdm import tqdm
 
 from dgl.dataloading import GraphDataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
@@ -20,15 +21,22 @@ device = "cpu"
 verbosity = 1  # 0 for debugging
 
 # training configs
-epoches = 50
+epoches = 1
 learning_rate = 3e-4
 batch_size = 4
 
 # model configs
-h_dim = 64
-base = 2.0
-label_min = -2
-label_max = 9
+model_config = {
+    "h_dim": 64,
+    "activation":'ReLU',
+    "num_mp": 2,
+    "update": "activate",
+    "readout": "sum",
+    "pred_layer": 2,
+    "pred_base" : 2.0,
+    "pred_exp_min" : -2,
+    "pred_exp_max" : 9,
+}
 
 #------------------ Initalize Dataset ----------------------------#
 
@@ -47,19 +55,14 @@ test_dataloader = GraphDataLoader(
 
 #------------------ Initialize Model ----------------------------#
 
-model = VanillaModel(h_dim=64, label_min=label_min, label_max=label_max).to(device)
+model = HyperGraphModel(**model_config).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 #------------------ Initialize Logger ----------------------------#
 
-logger = Logger("vanilla", model, verbosity=verbosity)
-
-logger.info(f"hidden dim = {h_dim}")
-logger.info(f"base = {base}")
-logger.info(f"label_min = {label_min}")
-logger.info(f"label_max = {label_max}")
-logger.info(f"epoches = {epoches}")
-logger.info(f"learning rate = {learning_rate}")
+logger = Logger("Hyper Graph Model", model, verbosity=verbosity)
+for key, val in model_config.items():
+    logger.info(f"{key} = {val}")
 
 #------------------ Training Model ----------------------------#
 
@@ -68,7 +71,9 @@ def feed_data(dataloader, train=False):
     correct = 0
     total = 0
 
-    for batched_graph, congestion in dataloader:
+    pbar = tqdm(dataloader, desc="train" if train else "test")
+
+    for batched_graph, congestion in pbar:
         pred = model(batched_graph)
         labels = model.congestion_to_label(congestion)
         loss = F.cross_entropy(pred, labels)
@@ -80,8 +85,8 @@ def feed_data(dataloader, train=False):
         losses.append(loss.item())
         correct += (pred.argmax(1) == labels).sum().item()
         total += len(labels)
-        
-        logger.debug(f"dataloader: {total} / {len(dataloader) * batch_size}")
+
+        pbar.postfix = f"acc = {correct / total:.2%}"
 
     avg_loss = np.average(losses)
     avg_acc = correct / total
