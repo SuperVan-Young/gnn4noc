@@ -15,18 +15,7 @@ from tqdm import tqdm
 from dgl.dataloading import GraphDataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
-#------------------ Global Config --------------------------------#
-
-device = "cpu"
-verbosity = 1  # 0 for debugging
-
-# training configs
-epoches = 1
-learning_rate = 3e-4
-batch_size = 4
-
-# model configs
-model_config = {
+example_model_config = {
     "h_dim": 64,
     "activation":'ReLU',
     "num_mp": 2,
@@ -38,96 +27,110 @@ model_config = {
     "pred_exp_max" : 9,
 }
 
-#------------------ Initalize Dataset ----------------------------#
+def train(model_config):
+    #------------------ Global Config --------------------------------#
 
-dataset = NoCDataset()
+    device = "cpu"
+    verbosity = 1  # 0 for debugging
 
-num_examples = len(dataset)
-num_train = int(num_examples * 0.9)
+    # training configs
+    epoches = 70
+    learning_rate = 3e-4
+    batch_size = 4
 
-train_sampler = SubsetRandomSampler(torch.arange(num_train))
-test_sampler = SubsetRandomSampler(torch.arange(num_train, num_examples))
+    #------------------ Initalize Dataset ----------------------------#
 
-train_dataloader = GraphDataLoader(
-    dataset, sampler=train_sampler, batch_size=batch_size, drop_last=False)
-test_dataloader = GraphDataLoader(
-    dataset, sampler=test_sampler, batch_size=batch_size, drop_last=False)
+    dataset = NoCDataset()
 
-#------------------ Initialize Model ----------------------------#
+    num_examples = len(dataset)
+    num_train = int(num_examples * 0.9)
 
-model = HyperGraphModel(**model_config).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    train_sampler = SubsetRandomSampler(torch.arange(num_train))
+    test_sampler = SubsetRandomSampler(torch.arange(num_train, num_examples))
 
-#------------------ Initialize Logger ----------------------------#
+    train_dataloader = GraphDataLoader(
+        dataset, sampler=train_sampler, batch_size=batch_size, drop_last=False)
+    test_dataloader = GraphDataLoader(
+        dataset, sampler=test_sampler, batch_size=batch_size, drop_last=False)
 
-logger = Logger("Hyper Graph Model", model, verbosity=verbosity)
-for key, val in model_config.items():
-    logger.info(f"{key} = {val}")
+    #------------------ Initialize Model ----------------------------#
 
-#------------------ Training Model ----------------------------#
+    model = HyperGraphModel(**model_config).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-def feed_data(dataloader, train=False):
-    losses = []
-    correct = 0
-    total = 0
+    #------------------ Initialize Logger ----------------------------#
 
-    pbar = tqdm(dataloader, desc="train" if train else "test")
+    logger = Logger("Hyper Graph Model", model, verbosity=verbosity)
+    for key, val in model_config.items():
+        logger.info(f"{key} = {val}")
 
-    for batched_graph, congestion in pbar:
-        pred = model(batched_graph)
-        labels = model.congestion_to_label(congestion)
-        loss = F.cross_entropy(pred, labels)
-        if train:
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+    #------------------ Training Model ----------------------------#
 
-        losses.append(loss.item())
-        correct += (pred.argmax(1) == labels).sum().item()
-        total += len(labels)
+    def feed_data(dataloader, train=False):
+        losses = []
+        correct = 0
+        total = 0
 
-        pbar.postfix = f"acc = {correct / total:.2%}"
+        pbar = tqdm(dataloader, desc="train" if train else "test")
 
-    avg_loss = np.average(losses)
-    avg_acc = correct / total
-    return avg_loss, avg_acc
+        for batched_graph, congestion in pbar:
+            pred = model(batched_graph)
+            labels = model.congestion_to_label(congestion)
+            loss = F.cross_entropy(pred, labels)
+            if train:
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-for e in range(epoches):
-    logger.info(f"Epoch = {e}")
+            losses.append(loss.item())
+            correct += (pred.argmax(1) == labels).sum().item()
+            total += len(labels)
 
-    # train
-    train_loss, train_acc = feed_data(train_dataloader, train=True)
-    logger.info(f"Training loss = {train_loss:.2f}")
-    logger.info(f"Training acc  = {train_acc:.2%}")
-    logger.append_train_loss(train_loss)
-    logger.append_train_acc(train_acc)
+            pbar.postfix = f"acc = {correct / total:.2%}"
 
-    # test loss and accuracy
-    test_loss, test_acc = feed_data(test_dataloader, train=False)
-    logger.info(f"Testing loss = {test_loss:.2f}")
-    logger.info(f"Testing acc  = {test_acc:.2%}")
-    logger.append_test_loss(test_loss)
-    logger.append_test_acc(test_acc)
+        avg_loss = np.average(losses)
+        avg_acc = correct / total
+        return avg_loss, avg_acc
 
-# --------------------- Dump Result -----------------------------# 
+    for e in range(epoches):
+        logger.info(f"Epoch = {e}")
 
-logger.dump_model()
-logger.plot_curve("train_loss")
-logger.plot_curve("test_loss")
-logger.plot_curve("train_acc")
-logger.plot_curve("test_acc")
+        # train
+        train_loss, train_acc = feed_data(train_dataloader, train=True)
+        logger.info(f"Training loss = {train_loss:.2f}")
+        logger.info(f"Training acc  = {train_acc:.2%}")
+        logger.append_train_loss(train_loss)
+        logger.append_train_acc(train_acc)
 
-logger.info("Finished training model.")
+        # test loss and accuracy
+        test_loss, test_acc = feed_data(test_dataloader, train=False)
+        logger.info(f"Testing loss = {test_loss:.2f}")
+        logger.info(f"Testing acc  = {test_acc:.2%}")
+        logger.append_test_loss(test_loss)
+        logger.append_test_acc(test_acc)
 
-#-------------------- Test congestion accuracy ----------------------------#
+    # --------------------- Dump Result -----------------------------# 
 
-logger.info("Testing congestion prediction performance.")
+    logger.dump_model()
+    logger.plot_curve("train_loss")
+    logger.plot_curve("test_loss")
+    logger.plot_curve("train_acc")
+    logger.plot_curve("test_acc")
 
-dataset.use_label = False
-congestion_dataloader = GraphDataLoader(
-    dataset, sampler=test_sampler, batch_size=1, drop_last=False)
+    logger.info("Finished training model.")
 
-for g, cong in congestion_dataloader:
-    pred = model(g)
-    pred = model.label_to_congestion(pred.argmax(1).item())
-    logger.info(f"Ground Truth = {cong.item()}, Pred = {pred}")
+    #-------------------- Test congestion accuracy ----------------------------#
+
+    logger.info("Testing congestion prediction performance.")
+
+    dataset.use_label = False
+    congestion_dataloader = GraphDataLoader(
+        dataset, sampler=test_sampler, batch_size=1, drop_last=False)
+
+    for g, cong in congestion_dataloader:
+        pred = model(g)
+        pred = model.label_to_congestion(pred.argmax(1).item())
+        logger.info(f"Ground Truth = {cong.item()}, Pred = {pred}")
+
+if __name__ == "__main__":
+    train(example_model_config)
