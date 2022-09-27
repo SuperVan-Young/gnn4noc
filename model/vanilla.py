@@ -6,59 +6,55 @@ import dgl.function as fn
 import numpy as np
 
 class LinearBlock(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, activation="ReLU"):
         super().__init__()
-        self.lin = nn.Sequential(
-            nn.Linear(input_dim, output_dim),
-            nn.ReLU()
-        )
+        self.lin = nn.Linear(input_dim, output_dim)
+        self.activation = nn.ReLU()
+        if activation == "ReLU":
+            self.activation = nn.ReLU()
+        elif activation == "LeakyReLU":
+            self.activation = nn.LeakyReLU()
+        elif activation == "ELU":
+            self.activation = nn.ELU()
+        else:
+            raise NotImplementedError
     
     def forward(self, x):
-        return self.lin(x)
-
-
-class ResidualBlock(nn.Module):
-    def __init__(self, h_dim, input_dim=None):
-        super().__init__()
-        if input_dim == None:
-            input_dim = h_dim
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, h_dim),
-            nn.ReLU(),
-            nn.Linear(h_dim, input_dim),
-            nn.ReLU(),
-        )
-
-    def forward(self, x):
-        return x + self.mlp(x)
+        return self.activation(self.lin(x))
 
 
 class FeatureGen(nn.Module):
     """Convert embedding feature dim into global hidden dim.
     """
-    def __init__(self, h_dim):
+    def __init__(self, h_dim, activation="ReLU"):
         super().__init__()
-        self.hyper_lin_freq = LinearBlock(1, h_dim)
-        self.hyper_lin_flit = LinearBlock(32, h_dim)
-        self.node_lin_op_type = LinearBlock(4, h_dim)
-        self.fuse_hyper = LinearBlock(2*h_dim, h_dim)
-        self.fuse_node = LinearBlock(h_dim, h_dim)
+        self.packet_freq = LinearBlock(1, h_dim, activation)
+        self.packet_flit = LinearBlock(32, h_dim, activation)
+        self.router_op_type = LinearBlock(4, h_dim, activation)
+        self.channel_bandwidth = LinearBlock(1, h_dim, activation)
+        self.fuse_packet = LinearBlock(2*h_dim, h_dim, activation)
+        self.fuse_router = LinearBlock(h_dim, h_dim, activation)
+        self.fuse_channel = LinearBlock(h_dim, h_dim, activation)
 
     def forward(self, g:dgl.heterograph):
-        freq_feat = self.hyper_lin_freq(g.nodes['packet'].data['freq'])
-        flit_feat = self.hyper_lin_flit(g.nodes['packet'].data['flit'])
-        hyper_node_feat = torch.concat([freq_feat, flit_feat], dim=1)
-        hyper_node_feat = self.fuse_hyper(hyper_node_feat)
+        freq_feat = self.packet_freq(g.nodes['packet'].data['freq'])
+        flit_feat = self.packet_flit(g.nodes['packet'].data['flit'])
+        packet_feat = torch.concat([freq_feat, flit_feat], dim=1)
+        packet_feat = self.fuse_packet(packet_feat)
+        g.nodes['packet'].data['feat'] = packet_feat
 
-        op_type_feat = self.node_lin_op_type(g.nodes['router'].data['op_type'])
-        node_feat = self.fuse_node(op_type_feat)
+        op_type_feat = self.router_op_type(g.nodes['router'].data['op_type'])
+        router_feat = self.fuse_router(op_type_feat)
+        g.nodes['router'].data['feat'] = router_feat
 
-        g.nodes['router'].data['feat'] = node_feat
-        g.nodes['packet'].data['feat'] = hyper_node_feat
+        bandwidth_feat = self.channel_bandwidth(g.nodes['channel'].data['bandwidth'])
+        channel_feat = self.fuse_channel(bandwidth_feat)
+        g.nodes['channel'].data['feat'] = channel_feat
 
 
-class HeteroGraphConv(nn.Module):
-    """Simplified version of the above message passing"""
+class MessagePassing(nn.Module):
+    """
+    """
     def __init__(self, h_dim):
         super().__init__()
         self.lin_r = nn.Sequential(
@@ -101,8 +97,8 @@ class VanillaModel(nn.Module):
         self.label_max = label_max
         num_labels = label_max - label_min
         self.feature_gen = FeatureGen(h_dim)
-        self.conv1 = HeteroGraphConv(h_dim)
-        self.conv2 = HeteroGraphConv(h_dim)
+        self.conv1 = MessagePassing(h_dim)
+        self.conv2 = MessagePassing(h_dim)
         self.prediction_head = nn.Sequential(
             nn.Linear(2*h_dim, h_dim),
             nn.ReLU(),

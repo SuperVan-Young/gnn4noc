@@ -11,62 +11,73 @@ from base import GraphGenerator, SmartDict, binarize_float
 class HyperGraphGenerator(GraphGenerator):
 
     def _gen_graph(self, G:nx.DiGraph):
-        graph, pkt2id, rt2id = self.__gen_skeleton(G)
-        for attr, t in self.__gen_hyper_nattr(G, pkt2id).items():
+        graph, pkt2id, rt2id, chan2id = self.__gen_skeleton(G)
+        for attr, t in self.__gen_packet_attr(G, pkt2id).items():
             graph.nodes['packet'].data[attr] = t
-        for attr, t in self.__gen_nattr(G, rt2id).items():
+        for attr, t in self.__gen_router_attr(G, rt2id).items():
             graph.nodes['router'].data[attr] = t
+        for attr, t in self.__gen_channel_attr(G, chan2id).items():
+            graph.nodes['channel'].data[attr] = t
 
         return graph
 
-    def _gen_label(self, G:nx.DiGraph):
-        pass
-
     def __gen_skeleton(self, G:nx.DiGraph):
         """Generate heterograph given the subgraph.
-        Return: dgl.heterograph, pkt2id, rt2id
+        Returns:
+        - graph: dgl heterogeneous graph
+        - pkt2id: {first packet pid: packet id in graph}
+        - rt2id: {p_pe: router id in graph}
+        - chan2id: {(u_pe, v_pe): channel id in graph}
         """
-        packet_to_router = dict()  # pid: rids
-        router_to_router = dict()  # rid: rids
+        packet_to_channel = dict()  # pid: cids
+        router_to_channel_in = dict()  # rid: cids
+        router_to_channel_out = dict()  # rid: cids
 
-        pkt2id = SmartDict()  # FIRST packet: pid
+        pkt2id = SmartDict()
         rt2id = SmartDict()
+        chan2id = SmartDict()
 
         for u, v, eattr in G.edges(data=True):
-            if eattr['edge_type'] != "data":
-                continue
-            if (len(eattr["pkt"]) == 0):
+            if eattr['edge_type'] != "data" or len(eattr["pkt"]) == 0:
                 continue  # could happen when insrc and worker on the same pe
-            pkt = eattr["pkt"][0]  # the first pkt is fine
+
+            pkt = eattr["pkt"][0]
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
-            routing = self.parser.routing_parser.get_routing_hops(u_pe, v_pe, pkt)
+            channels = self.parser.routing_parser.get_routing_hops(u_pe, v_pe, pkt)
 
             pid = pkt2id[pkt]
-            rid_u = rt2id[u_pe]
-            packet_to_router[pid] = [rid_u]  # add routing start
+            packet_to_channel[pid] = []
+            for s, d in channels:
+                rid_s, rid_d = rt2id[s], rt2id[d]
+                cid = chan2id[(s, d)]
 
-            for s, e in routing:
-                rid_s, rid_e = rt2id[s], rt2id[e]
-                packet_to_router[pid].append(rid_e)  # add every routing hop's end
+                packet_to_channel[pid].append(cid)        # packet pass this channel
+                if rid_s not in router_to_channel_out.keys():
+                    router_to_channel_out[rid_s] = []
+                if cid not in router_to_channel_out[rid_s]:
+                    router_to_channel_out[rid_s].append(cid)  # this channel is source router's output channel
+                if rid_d not in router_to_channel_in.keys():
+                    router_to_channel_in[rid_d] = []
+                if cid not in router_to_channel_in[rid_d]:
+                    router_to_channel_in[rid_d].append(cid)   # this channel is destination router's input channel
 
-                # for every hop, add physical channel connection
-                if rid_s not in router_to_router.keys():
-                    router_to_router[rid_s] = []
-                if rid_e not in router_to_router[rid_s]:
-                    router_to_router[rid_s].append(rid_e)
+        pass_srcs, pass_dsts = self.__parse_edges_dict(packet_to_channel)
+        pass_inv_srcs, pass_inv_dsts = pass_dsts.clone().detach(), pass_srcs.clone().detach()
+        output_srcs, output_dsts = self.__parse_edges_dict(router_to_channel_out)
+        output_inv_srcs, output_inv_dsts = output_dsts.clone().detach(), output_srcs.clone().detach()
+        input_dsts, input_srcs = self.__parse_edges_dict(router_to_channel_in)
+        input_inv_srcs, input_inv_dsts = input_dsts.clone().detach(), input_srcs.clone().detach()
 
-        pass_edges = self.__parse_edges_dict(packet_to_router)
-        transfer_edges = (pass_edges[1].clone().detach(), pass_edges[0].clone().detach())
-        connect_edges = self.__parse_edges_dict(router_to_router)
-        backpressure_edges = (connect_edges[1].clone().detach(), connect_edges[0].clone().detach())
         graph = dgl.heterograph({
-            ('packet', 'pass', 'router'): pass_edges,
-            ('router', 'transfer', 'packet'): transfer_edges,
-            ('router', 'connect', 'router'): connect_edges,
-            ('router', 'backpressure', 'router'): backpressure_edges,
+            ('packet', 'pass', 'channel'): (pass_srcs, pass_dsts),
+            ('channel', 'pass_inv', 'packet'): (pass_inv_srcs, pass_inv_dsts),
+            ('router', 'output', 'channel'): (output_srcs, output_dsts),
+            ('channel', 'output_inv', 'router'): (output_inv_srcs, output_inv_dsts),
+            ('channel', 'input', 'router'): (input_srcs, input_dsts),
+            ('router', 'input_inv', 'channel'): (input_inv_srcs, input_inv_dsts),
         })
 
-        return graph, pkt2id, rt2id
+        return graph, pkt2id, rt2id, chan2id
 
     def __parse_edges_dict(self, edges):
         """ Parse dict of edge lists.
@@ -80,9 +91,9 @@ class HyperGraphGenerator(GraphGenerator):
 
         return torch.tensor(src), torch.tensor(dst)
 
-    def __gen_nattr(self, G, rt2id):
+    def __gen_router_attr(self, G, rt2id):
         """Generate router's attribute.
-        Return: [Tensor(#Router, node_attr_dim)]
+        Return: [Tensor(#Router, router_attr_dim)]
 
         Node attribute contains:
         - op_type: one-hot representation, dim=4
@@ -108,9 +119,9 @@ class HyperGraphGenerator(GraphGenerator):
         }
 
 
-    def __gen_hyper_nattr(self, G, pkt2id):
+    def __gen_packet_attr(self, G, pkt2id):
         """Generate packet's attribute.
-        Return: [Tensor(#Packet, hyper_node_dim)
+        Return: [Tensor(#Packet, packet_attr_dim)
 
         Node attribute contains:
         - freq: frequency to send packet, dim=1
@@ -121,9 +132,7 @@ class HyperGraphGenerator(GraphGenerator):
         flit = torch.zeros(num_packets)
 
         for u, v, eattr in G.edges(data=True):
-            if eattr['edge_type'] != "data":
-                continue
-            if (len(eattr["pkt"]) == 0):
+            if eattr['edge_type'] != "data" or len(eattr["pkt"]) == 0:
                 continue  # could happen when insrc and worker on the same pe
             pkt = eattr["pkt"][0]  # the first pkt is fine
             pid = pkt2id[pkt]
@@ -137,6 +146,26 @@ class HyperGraphGenerator(GraphGenerator):
             "flit": flit.float(),
             "freq": freq.float(),
         }
+
+    
+    def __gen_channel_attr(self, G, chan2id):
+        """Generate channel's attribute.
+        Return: [Tensor(#channel, channel_attr_dim)]
+
+        Node attribute contains:
+        - bandwidth: bytes per cycle, dim=1
+        """
+        num_channels = len(chan2id)
+        bandwidth = torch.ones(num_channels).unsqueeze(-1)
+
+        # this is a default bandwidth.
+        # useless on current toolchain, but we leave this interface anyway.
+        bandwidth = bandwidth * 1024  
+
+        return {
+            "bandwidth": bandwidth.float()
+        }
+        
 
     def _gen_label(self, G: nx.DiGraph):
         """Calculate maximum congestion ratio.

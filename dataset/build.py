@@ -3,6 +3,7 @@ import os
 import sys
 import multiprocessing as mp
 import argparse
+from tqdm import tqdm
 
 import global_control as gc
 
@@ -95,8 +96,9 @@ def run_focus(layer):
 
 def convert_data():
     tasknames = next(os.walk(gc.tasks_root))[1]
+    pbar = tqdm(tasknames, desc="convert data")
 
-    for taskname in tasknames:
+    for taskname in pbar:
         root = os.path.join(gc.tasks_root, taskname)
 
         try:
@@ -108,7 +110,7 @@ def convert_data():
             os.system(f"rm -r {root}")
             continue
         
-        print(f"Converting {taskname}")
+        pbar.postfix = taskname
 
         graph_path = os.path.join(root, 'op_graph.gpickle')
         outlog_path = os.path.join(root, 'out.log')
