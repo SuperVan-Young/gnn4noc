@@ -19,7 +19,8 @@ tasks_root = os.path.join(dataset_root, "tasks")
 if not os.path.exists(tasks_root):
     os.mkdir(tasks_root)
 
-data_root = os.path.join(dataset_root, "data")
+data_root = os.path.join(dataset_root, "data", "router")
+# data_root = os.path.join(dataset_root, "data", "output_port")
 if not os.path.exists(data_root):
     os.mkdir(data_root)
 
