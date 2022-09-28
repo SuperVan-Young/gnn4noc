@@ -46,17 +46,17 @@ if __name__ == "__main__":
 
     configs = [
         baseline_config,
-        larger_h_dim,
-        even_larger_h_dim,
-        leaky_relu_activation,
-        elu_relu_activation,
+        # larger_h_dim,
+        # even_larger_h_dim,
+        # leaky_relu_activation,
+        # elu_relu_activation,
         gru_update,
         set2set_pooling,
-        max_pooling,
-        avg_pooling,
+        # max_pooling,
+        # avg_pooling,
         less_pred_layer,
         smaller_pred_base,
     ]
 
-    with mp.Pool(processes=2) as pool:
-        pool.apply(train, configs)
+    with mp.Pool(processes=1) as pool:
+        pool.map(train, configs, chunksize=1)

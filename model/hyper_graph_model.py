@@ -37,7 +37,7 @@ class FeatureGen(nn.Module):
         self.packet_freq = LinearBlock(1, h_dim, activation)
         self.packet_flit = LinearBlock(32, h_dim, activation)
         self.router_op_type = LinearBlock(6, h_dim, activation)
-        self.channel_bandwidth = LinearBlock(32, h_dim, activation)
+        # self.channel_bandwidth = LinearBlock(32, h_dim, activation)
         self.fuse_packet = nn.Linear(2 * h_dim, h_dim)
         self.fuse_router = nn.Linear(h_dim, h_dim)
         self.fuse_channel = nn.Linear(h_dim, h_dim)
@@ -53,13 +53,13 @@ class FeatureGen(nn.Module):
         op_type_feat = self.router_op_type(g.nodes['router'].data['op_type'])
         router_feat = self.fuse_router(op_type_feat)
 
-        bandwidth_feat = self.channel_bandwidth(g.nodes['channel'].data['bandwidth'])
-        channel_feat = self.fuse_channel(bandwidth_feat)
+        # bandwidth_feat = self.channel_bandwidth(g.nodes['channel'].data['bandwidth'])
+        # channel_feat = self.fuse_channel(bandwidth_feat)
 
         return {
             "packet": packet_feat,    # (#packet, h_dim)
             "router": router_feat,    # (#router, h_dim)
-            "channel": channel_feat,  # (#channel, h_dim)
+            # "channel": channel_feat,  # (#channel, h_dim)
         }
 
 

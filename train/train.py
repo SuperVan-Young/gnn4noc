@@ -40,7 +40,8 @@ def train(model_config):
 
     #------------------ Initalize Dataset ----------------------------#
 
-    dataset = NoCDataset()
+    data_root = os.path.join("/home/xuechenhao/gnn4noc/dataset/data/output_port/")
+    dataset = NoCDataset(data_root)
 
     num_examples = len(dataset)
     num_train = int(num_examples * 0.9)
