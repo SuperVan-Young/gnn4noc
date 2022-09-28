@@ -11,17 +11,17 @@ from base import GraphGenerator, SmartDict, binarize_float
 class HyperGraphGenerator(GraphGenerator):
 
     def _gen_graph(self, G:nx.DiGraph):
-        graph, pkt2id, rt2id, chan2id = self.__gen_skeleton(G)
-        for attr, t in self.__gen_packet_attr(G, pkt2id).items():
+        graph, pkt2id, rt2id, chan2id = self._gen_skeleton(G)
+        for attr, t in self._gen_packet_attr(G, pkt2id).items():
             graph.nodes['packet'].data[attr] = t
-        for attr, t in self.__gen_router_attr(G, rt2id).items():
+        for attr, t in self._gen_router_attr(G, rt2id).items():
             graph.nodes['router'].data[attr] = t
-        for attr, t in self.__gen_channel_attr(G, chan2id).items():
+        for attr, t in self._gen_channel_attr(G, chan2id).items():
             graph.nodes['channel'].data[attr] = t
 
         return graph
 
-    def __gen_skeleton(self, G:nx.DiGraph):
+    def _gen_skeleton(self, G:nx.DiGraph):
         """Generate heterograph given the subgraph.
         Returns:
         - graph: dgl heterogeneous graph
@@ -61,11 +61,11 @@ class HyperGraphGenerator(GraphGenerator):
                 if cid not in router_to_channel_in[rid_d]:
                     router_to_channel_in[rid_d].append(cid)   # this channel is destination router's input channel
 
-        pass_srcs, pass_dsts = self.__parse_edges_dict(packet_to_channel)
+        pass_srcs, pass_dsts = self._parse_edges_dict(packet_to_channel)
         pass_inv_srcs, pass_inv_dsts = pass_dsts.clone().detach(), pass_srcs.clone().detach()
-        output_srcs, output_dsts = self.__parse_edges_dict(router_to_channel_out)
+        output_srcs, output_dsts = self._parse_edges_dict(router_to_channel_out)
         output_inv_srcs, output_inv_dsts = output_dsts.clone().detach(), output_srcs.clone().detach()
-        input_dsts, input_srcs = self.__parse_edges_dict(router_to_channel_in)
+        input_dsts, input_srcs = self._parse_edges_dict(router_to_channel_in)
         input_inv_srcs, input_inv_dsts = input_dsts.clone().detach(), input_srcs.clone().detach()
 
         graph = dgl.heterograph({
@@ -79,7 +79,7 @@ class HyperGraphGenerator(GraphGenerator):
 
         return graph, pkt2id, rt2id, chan2id
 
-    def __parse_edges_dict(self, edges):
+    def _parse_edges_dict(self, edges):
         """ Parse dict of edge lists.
         Return: source node tensor, dest node tensor
         """
@@ -91,35 +91,41 @@ class HyperGraphGenerator(GraphGenerator):
 
         return torch.tensor(src), torch.tensor(dst)
 
-    def __gen_router_attr(self, G, rt2id):
+    def _gen_router_attr(self, G, rt2id):
         """Generate router's attribute.
         Return: [Tensor(#Router, router_attr_dim)]
 
         Node attribute contains:
-        - op_type: one-hot representation, dim=4
+        - op_type: one-hot representation, dim=6
         """
 
         num_routers =  len(rt2id)
-        op_type = torch.zeros(num_routers, 4)
+        op_type = torch.zeros(num_routers, 6)
 
         cast_op_type = {
-            "wsrc": torch.tensor([1, 0, 0, 0]).unsqueeze(0),
-            "insrc": torch.tensor([0, 1, 0, 0]).unsqueeze(0),
-            "worker": torch.tensor([0, 0, 1, 0]).unsqueeze(0),
-            "sink": torch.tensor([0, 0, 0, 1]).unsqueeze(0),
+            "wsrc": torch.tensor([1, 0, 0, 0, 0, 0]).unsqueeze(0),
+            "insrc": torch.tensor([0, 1, 0, 0, 0, 0]).unsqueeze(0),
+            "worker": torch.tensor([0, 0, 1, 0, 0, 0]).unsqueeze(0),
+            "sink": torch.tensor([0, 0, 0, 1, 0, 0]).unsqueeze(0),
+            "noc": torch.tensor([0, 0, 0, 0, 1, 0]).unsqueeze(0),
         }
 
+        annotated = []
         for u, nattr in G.nodes(data=True):
             u_pe = nattr['p_pe']
             rid_u = rt2id[u_pe]
-            op_type[rid_u:rid_u+1, :] = cast_op_type[nattr['op_type']]
+            op_type[rid_u:rid_u+1, :] += cast_op_type[nattr['op_type']]
+            annotated.append(rid_u)
+        for rid in rt2id.keys():
+            if rid not in annotated:
+                op_type[rid:rid+1, :] += cast_op_type['noc']
         
         return {
             "op_type": op_type.float()
         }
 
 
-    def __gen_packet_attr(self, G, pkt2id):
+    def _gen_packet_attr(self, G, pkt2id):
         """Generate packet's attribute.
         Return: [Tensor(#Packet, packet_attr_dim)
 
@@ -148,12 +154,12 @@ class HyperGraphGenerator(GraphGenerator):
         }
 
     
-    def __gen_channel_attr(self, G, chan2id):
+    def _gen_channel_attr(self, G, chan2id):
         """Generate channel's attribute.
         Return: [Tensor(#channel, channel_attr_dim)]
 
         Node attribute contains:
-        - bandwidth: bytes per cycle, dim=1
+        - bandwidth: bytes per cycle, dim=32
         """
         num_channels = len(chan2id)
         bandwidth = torch.ones(num_channels).unsqueeze(-1)
@@ -161,6 +167,7 @@ class HyperGraphGenerator(GraphGenerator):
         # this is a default bandwidth.
         # useless on current toolchain, but we leave this interface anyway.
         bandwidth = bandwidth * 1024  
+        bandwidth = binarize_float(bandwidth, 32)
 
         return {
             "bandwidth": bandwidth.float()
