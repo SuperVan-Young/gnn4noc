@@ -13,8 +13,8 @@ if not os.path.exists(log_root):
 class Logger():
     def __init__(self, name, model, verbosity=1) -> None:
         self.name = name
-        timestamp = time.strftime("%Y%m%d%H%M%S", time.localtime())
-        self.log_root = os.path.join(log_root, f"{name}_{timestamp}")
+        self.timestamp = time.strftime("%Y%m%d%H%M%S", time.localtime())
+        self.log_root = os.path.join(log_root, f"{name}_{self.timestamp}")
         if not os.path.exists(self.log_root):
             os.mkdir(self.log_root)
 
@@ -34,7 +34,7 @@ class Logger():
         formatter = logging.Formatter(
             "[%(asctime)s][%(levelname)s] %(message)s"
         )
-        self.logger = logging.getLogger(self.name)
+        self.logger = logging.getLogger(f"{self.name}_{self.timestamp}")
         self.logger.setLevel(level_dict[verbosity])
 
         logfile = os.path.join(self.log_root, "log")

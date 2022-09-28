@@ -36,8 +36,8 @@ class FeatureGen(nn.Module):
         self.h_dim = h_dim
         self.packet_freq = LinearBlock(1, h_dim, activation)
         self.packet_flit = LinearBlock(32, h_dim, activation)
-        self.router_op_type = LinearBlock(4, h_dim, activation)
-        self.channel_bandwidth = LinearBlock(1, h_dim, activation)
+        self.router_op_type = LinearBlock(6, h_dim, activation)
+        self.channel_bandwidth = LinearBlock(32, h_dim, activation)
         self.fuse_packet = nn.Linear(2 * h_dim, h_dim)
         self.fuse_router = nn.Linear(h_dim, h_dim)
         self.fuse_channel = nn.Linear(h_dim, h_dim)
