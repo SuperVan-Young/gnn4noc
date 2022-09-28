@@ -4,6 +4,7 @@ import sys
 import multiprocessing as mp
 import argparse
 from tqdm import tqdm
+import traceback
 
 import global_control as gc
 
@@ -11,6 +12,7 @@ from focus_agent.sampler import LayerSampler
 from focus_agent.focus_agent import FocusAgent
 from trace_parser.trace_parser import TraceParser
 from graph_generator.hyper import HyperGraphGenerator
+from graph_generator.output_port import OutputPortGraphGenerator
 
 
 def parse_args():
@@ -28,15 +30,24 @@ def parse_args():
                         help="core array size")
     parser.add_argument("--flit_size", type=int, default=1024,
                         help="flit size (actually useless for performance)")
+    parser.add_argument("--data_root", type=str, default="router",
+                        help="where to save converted data")
+    parser.add_argument("--graph_gen", type=str, default="hyper",
+                        help="choose graph generator type")
     return parser.parse_args()
 
 def set_global_control(args):
+    gc.data_root = os.path.join(gc.dataset_root, "data", args.data_root)
+    if not os.path.exists(gc.data_root):
+        os.mkdir(gc.data_root)
+
     gc.build_run_focus = args.run_focus
     gc.build_num_samples = args.num_samples
     gc.build_convert = args.convert
     gc.build_worker = args.worker
     gc.build_array_size = args.array_size
     gc.build_flit_size = args.flit_size
+    gc.build_graph_gen = args.graph_gen
 
 def build():
     if gc.build_run_focus:
@@ -51,7 +62,7 @@ def build():
         print("Build: running FOCUS complete!")
 
     if gc.build_convert:
-        print("Build: converting data ...")
+        print(f"Build: converting data to data root = {gc.data_root}")
 
         convert_data()
 
@@ -119,13 +130,20 @@ def convert_data():
         trace_parser = TraceParser(graph_path, outlog_path, routing_path, spec_path)
 
         try:
-            graph_generator = HyperGraphGenerator(trace_parser, predict=False)
+            if gc.build_graph_gen == "hyper":
+                graph_generator = HyperGraphGenerator(trace_parser, predict=False)
+            elif gc.build_graph_gen == "output_port":
+                graph_generator = OutputPortGraphGenerator(trace_parser, predict=False)
+            else:
+                raise NotImplementedError("invalid graph gen")
             graph = graph_generator.generate_graph()
             label = graph_generator.generate_label()
             savepath = os.path.join(gc.data_root, f"{taskname}.pkl")
             graph_generator.save_data(savepath, graph, label)
         except:
             print(f"Info: Error in converting {taskname}")
+            traceback.print_exc()
+            raise RuntimeError
 
 
 if __name__ == "__main__":

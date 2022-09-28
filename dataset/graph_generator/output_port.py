@@ -1,4 +1,5 @@
 import os
+from struct import pack
 import sys
 sys.path.append("..")
 
@@ -68,37 +69,48 @@ class OutputPortGraphGenerator(HyperGraphGenerator):
             pkt = eattr["pkt"][0]
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
             channels = self.parser.routing_parser.get_routing_hops(u_pe, v_pe, pkt)
-
-            w = -1  # previous port, started with a magic number for NI of source core
-            _, dest_port = channels[-1]
-            channels.append((dest_port, -2))  # magic number for NI of dest core
+            routing_tree = {s: [] for s, d in channels}
+            for s, d in channels:
+                routing_tree[s].append(d)
+            routing_tree[-1] = [u_pe]  # add injection port
+            for s, d in channels:
+                # add ejection channels for leaf routers
+                if d not in routing_tree.keys():
+                    routing_tree[d] = [-2]
 
             pid = pkt2id[pkt]
-            packet_to_channel[pid] = []
-            for s, d in channels:
-                port_w = self._get_port(w, s)
-                port_s = self._get_port(s, d)
-                port_w_id = rt2id[port_w]
-                port_s_id = rt2id[port_s]
-                w = s  # update previous port
 
-                cid = chan2id[(port_w_id, port_s_id)]
+            # add channel information when first encountering a packet
+            if pid not in packet_to_channel.keys():
+                packet_to_channel[pid] = []  # other wise multicast packets will be checked a lot
 
-                packet_to_channel[pid].append(cid)        # packet pass this channel
-                if port_w_id not in port_to_channel_out.keys():
-                    port_to_channel_out[port_w_id] = []
-                if cid not in port_to_channel_out[port_w_id]:
-                    port_to_channel_out[port_w_id].append(cid)  # this channel is source port's output channel
-                if port_s_id not in port_to_channel_in.keys():
-                    port_to_channel_in[port_s_id] = []
-                if cid not in port_to_channel_in[port_s_id]:
-                    port_to_channel_in[port_s_id].append(cid)   # this channel is destination port's input channel
+                # add noc channels
+                for s, d in channels:
+                    port_s = self._get_port(s, d)
+                    port_s_id = rt2id[port_s]
 
-        pass_srcs, pass_dsts = self.__parse_edges_dict(packet_to_channel)
+                    for w in routing_tree[d]:
+                        # multicast to all ports that needs this packet
+                        port_d = self._get_port(d, w)
+                        port_d_id = rt2id[port_d]
+
+                        cid = chan2id[(port_s_id, port_d_id)]
+
+                        packet_to_channel[pid].append(cid)          # packet pass this channel
+                        if port_s_id not in port_to_channel_out.keys():
+                            port_to_channel_out[port_s_id] = []         # another packet might have passed this channel from this port
+                        if cid not in port_to_channel_out[port_s_id]:
+                            port_to_channel_out[port_s_id].append(cid)  # this channel is source port's output channel
+                        if port_d_id not in port_to_channel_in.keys():
+                            port_to_channel_in[port_d_id] = []
+                        if cid not in port_to_channel_in[port_d_id]:
+                            port_to_channel_in[port_d_id].append(cid)   # this channel is destination port's input channel
+
+        pass_srcs, pass_dsts = self._parse_edges_dict(packet_to_channel)
         pass_inv_srcs, pass_inv_dsts = pass_dsts.clone().detach(), pass_srcs.clone().detach()
-        output_srcs, output_dsts = self.__parse_edges_dict(port_to_channel_out)
+        output_srcs, output_dsts = self._parse_edges_dict(port_to_channel_out)
         output_inv_srcs, output_inv_dsts = output_dsts.clone().detach(), output_srcs.clone().detach()
-        input_dsts, input_srcs = self.__parse_edges_dict(port_to_channel_in)
+        input_dsts, input_srcs = self._parse_edges_dict(port_to_channel_in)
         input_inv_srcs, input_inv_dsts = input_dsts.clone().detach(), input_srcs.clone().detach()
 
         graph = dgl.heterograph({
@@ -113,7 +125,7 @@ class OutputPortGraphGenerator(HyperGraphGenerator):
         return graph, pkt2id, rt2id, chan2id
 
     def _gen_router_attr(self, G, rt2id):
-        """Generate router's attribute.
+        """Generate router's (actually port) attribute.
         Return: [Tensor(#Router, router_attr_dim)]
 
         Node attribute contains:
@@ -121,7 +133,7 @@ class OutputPortGraphGenerator(HyperGraphGenerator):
         """
 
         num_routers =  len(rt2id)
-        op_type = torch.zeros(num_routers, 4)
+        op_type = torch.zeros(num_routers, 6)
 
         cast_op_type = {
             "wsrc_in": torch.tensor([1, 0, 0, 0, 0, 0]).unsqueeze(0),
@@ -135,18 +147,22 @@ class OutputPortGraphGenerator(HyperGraphGenerator):
         annotated = []
         for u, nattr in G.nodes(data=True):
             u_pe = nattr['p_pe']
+
             inject_port = self._get_port(-1, u_pe)
             if inject_port in rt2id.keys():
-                op_type[inject_port:inject_port+1, :] += cast_op_type[nattr['op_type'] + "_in"]
-                annotated.append(inject_port)
+                port_id = rt2id[inject_port]
+                op_type[port_id:port_id+1, :] += cast_op_type[nattr['op_type'] + "_in"]
+                annotated.append(port_id)
+
             eject_port = self._get_port(u_pe, -2)
             if eject_port in rt2id.keys():
-                op_type[eject_port:eject_port+1, :] += cast_op_type[nattr['op_type'] + "_out"]
-                annotated.append(eject_port)
+                port_id = rt2id[eject_port]
+                op_type[port_id:port_id+1, :] += cast_op_type[nattr['op_type'] + "_out"]
+                annotated.append(port_id)
         for port_id in rt2id.keys():
             if port_id not in annotated:
-                op_type[port_id +1, :] += cast_op_type['noc']
-        
+                op_type[port_id:port_id+1, :] += cast_op_type['noc']
+
         return {
             "op_type": op_type.float()
         }

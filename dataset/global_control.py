@@ -19,8 +19,10 @@ tasks_root = os.path.join(dataset_root, "tasks")
 if not os.path.exists(tasks_root):
     os.mkdir(tasks_root)
 
+if not os.path.exists(os.path.join(dataset_root, "data")):
+    os.mkdir(os.path.join(dataset_root, "data"))
+
 data_root = os.path.join(dataset_root, "data", "router")
-# data_root = os.path.join(dataset_root, "data", "output_port")
 if not os.path.exists(data_root):
     os.mkdir(data_root)
 
@@ -36,3 +38,5 @@ build_num_process = None
 build_array_size = None
 
 build_flit_size = None
+
+build_graph_gen = None

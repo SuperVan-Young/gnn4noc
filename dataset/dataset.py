@@ -12,9 +12,9 @@ class NoCDataset(DGLDataset):
     """#TODO: Could the dataset reside on memory?
     """
     def __init__(self, data_root=gc.data_root):
-        super().__init__(name="NoC")
-        assert os.path.exists(self.data_root)
         self.data_root = data_root
+        assert os.path.exists(self.data_root)
+        super().__init__(name="NoC")
 
     def process(self):
         self.samples = [file for _, _, file in os.walk(self.data_root)][0]
