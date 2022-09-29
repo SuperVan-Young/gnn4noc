@@ -40,8 +40,8 @@ def train(model_config):
 
     #------------------ Initalize Dataset ----------------------------#
 
-    data_root = os.path.join("/home/xuechenhao/gnn4noc/dataset/data/output_port/")
-    dataset = NoCDataset(data_root)
+    data_root = "/home/xuechenhao/gnn4noc/dataset/data/router/"
+    dataset = NoCDataset(data_root=data_root)
 
     num_examples = len(dataset)
     num_train = int(num_examples * 0.9)
@@ -62,6 +62,7 @@ def train(model_config):
     #------------------ Initialize Logger ----------------------------#
 
     logger = Logger("Hyper Graph Model", model, verbosity=verbosity)
+    logger.info(f"data root = {data_root}")
     for key, val in model_config.items():
         logger.info(f"{key} = {val}")
 

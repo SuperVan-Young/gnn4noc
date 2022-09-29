@@ -1,4 +1,3 @@
-from audioop import avg
 from train import train
 import multiprocessing as mp
 from copy import deepcopy
@@ -50,12 +49,12 @@ if __name__ == "__main__":
         # even_larger_h_dim,
         # leaky_relu_activation,
         # elu_relu_activation,
-        gru_update,
-        set2set_pooling,
+        # gru_update,
+        # set2set_pooling,
         # max_pooling,
         # avg_pooling,
-        less_pred_layer,
-        smaller_pred_base,
+        # less_pred_layer,
+        # smaller_pred_base,
     ]
 
     with mp.Pool(processes=1) as pool:

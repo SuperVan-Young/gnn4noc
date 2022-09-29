@@ -7,6 +7,7 @@ import dgl.function as fn
 import numpy as np
 
 from dgl.nn import SumPooling, AvgPooling, MaxPooling, Set2Set
+from hgt import HGTLayer
 
 def get_activation_func(name):
     if name == "ReLU":
@@ -37,7 +38,7 @@ class FeatureGen(nn.Module):
         self.packet_freq = LinearBlock(1, h_dim, activation)
         self.packet_flit = LinearBlock(32, h_dim, activation)
         self.router_op_type = LinearBlock(6, h_dim, activation)
-        # self.channel_bandwidth = LinearBlock(32, h_dim, activation)
+        self.channel_bandwidth = LinearBlock(32, h_dim, activation)  # FIXME: output_port graph doesn't have this!
         self.fuse_packet = nn.Linear(2 * h_dim, h_dim)
         self.fuse_router = nn.Linear(h_dim, h_dim)
         self.fuse_channel = nn.Linear(h_dim, h_dim)
@@ -147,7 +148,10 @@ class HyperGraphModel(nn.Module):
         prediction_layers = []
         assert pred_layer >= 0
         for i in range(pred_layer):
-            prediction_layers.append(nn.Linear(h_dim, h_dim)),
+            if i == 0 and readout == "set2set":
+                prediction_layers.append(nn.Linear(2*h_dim, h_dim)),
+            else:
+                prediction_layers.append(nn.Linear(h_dim, h_dim)),
             prediction_layers.append(get_activation_func(activation)),
         prediction_layers.append(nn.Linear(h_dim, pred_exp_max - pred_exp_min))
         self.prediction_head = nn.Sequential(*prediction_layers)
