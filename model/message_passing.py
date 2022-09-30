@@ -18,7 +18,9 @@ class MessagePassing(nn.Module):
         self.skip_p = nn.Parameter(torch.ones(1))
         self.drop = nn.Dropout(0.2)
 
-    def forward(self, g:dgl.heterograph):
+    def forward(self, g:dgl.heterograph, inp_key=None, out_key=None):
+        # same interface as HGT
+
         # channel gather router hidden state
         g.multi_update_all({
             "output": (fn.copy_u('h', 'm'), fn.sum('m', 'h_in')),     # generates m_in

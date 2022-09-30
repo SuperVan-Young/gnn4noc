@@ -7,13 +7,13 @@ import dgl
 import dgl.function as fn
 import numpy as np
 
-from hgt import HGTLayer
+from hgt import HGT, HGTLayer
 from feature_gen import FeatureGen
 from message_passing import MessagePassing
 from dgl.nn import Set2Set
 
 class PredictionHead(nn.Module):
-    def __init__(self, h_dim=64, n_pred=2, pred_base=2.0, pred_exp_min=-2, pred_exp_max=9) -> None:
+    def __init__(self, h_dim=64, n_pred=2, pred_base=2.0, pred_exp_min=-1, pred_exp_max=9) -> None:
         super().__init__()
         self.set2set = Set2Set(h_dim, 1, 1)
         self.lins = nn.ModuleList()
@@ -53,21 +53,35 @@ class HyperGraphModel(nn.Module):
     """A demo GNN model for NoC congestion prediction.
     """
 
-    def __init__(self, h_dim=64, n_hid=2, n_pred=2,
-                 pred_base=2.0, pred_exp_min=-2, pred_exp_max=9):
+    def __init__(self, h_dim=64, n_hid=2, n_pred=2, message_passing="vanilla",
+                 pred_base=2.0, pred_exp_min=-1, pred_exp_max=9):
         super().__init__()
         self.n_hid = n_hid
 
         self.feature_gen = FeatureGen(h_dim)
         self.message_passing = nn.ModuleList()
         for _ in range(n_hid):
-            self.message_passing.append(MessagePassing(h_dim))
+            if message_passing == "vanilla":
+                self.message_passing.append(MessagePassing(h_dim))
+            elif message_passing == "HGT":
+                self.message_passing.append(HGTLayer(h_dim, h_dim, 3, 7, n_heads=4, dropout=0.2, use_norm=True))
         self.prediction_head = PredictionHead(h_dim, n_pred, pred_base, pred_exp_min, pred_exp_max)
     
     def forward(self, g):
+        # prepare g
+        if isinstance(self.message_passing[0], HGTLayer):
+            g.node_dict = dict()
+            for i, ntype in enumerate(g.ntypes):
+                g.node_dict[ntype] = i
+                g.nodes[ntype].data['id'] = (torch.ones(g.num_nodes(ntype)).to(g.device) * i).long()
+            g.edge_dict = dict()
+            for i, etype in enumerate(g.etypes):
+                g.edge_dict[etype] = i
+                g.edges[etype].data['id'] = (torch.ones(g.num_edges(etype)).to(g.device) * i).long()
+
         self.feature_gen(g)
         for i in range(self.n_hid):
-            self.message_passing[i](g)
+            self.message_passing[i](g, 'h', 'h')
         pred = self.prediction_head(g)
         return pred
 

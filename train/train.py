@@ -19,8 +19,9 @@ example_model_config = {
     "h_dim": 64,
     "n_hid": 2,
     "n_pred": 2,
+    "message_passing": "HGT",
     "pred_base" : 2.0,
-    "pred_exp_min" : -2,
+    "pred_exp_min" : -1,
     "pred_exp_max" : 9,
 }
 

@@ -186,7 +186,7 @@ class HyperGraphGenerator(GraphGenerator):
         - bandwidth: bytes per cycle, dim=32
         """
         num_channels = len(chan2id)
-        bandwidth = torch.ones(num_channels).unsqueeze(-1)
+        bandwidth = torch.ones(num_channels)
 
         # this is a default bandwidth.
         # useless on current toolchain, but we leave this interface anyway.

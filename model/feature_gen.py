@@ -20,10 +20,15 @@ class FeatureGen(nn.Module):
             nn.Linear(6, h_dim),
             nn.Tanh(),
         )
+        self.channel_linear = nn.Sequential(
+            nn.Linear(32, h_dim),
+            nn.Tanh(),
+        )  # emm
 
     def forward(self, g:dgl.heterograph):
         """Convert input feature to initial hidden feature
         """
         g.nodes['packet'].data['h'] = self.packet_linear(g.nodes['packet'].data['inp'])
         g.nodes['router'].data['h'] = self.router_linear(g.nodes['router'].data['inp'])
+        g.nodes['channel'].data['h'] = self.channel_linear(g.nodes['channel'].data['inp'])
         
