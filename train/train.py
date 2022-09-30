@@ -54,7 +54,7 @@ def train(model_config):
     #------------------ Initialize Model ----------------------------#
 
     model = HyperGraphModel(**model_config).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     #------------------ Initialize Logger ----------------------------#
 
@@ -71,6 +71,10 @@ def train(model_config):
         total = 0
 
         pbar = tqdm(dataloader, desc="train" if train else "test")
+        if train:
+            model.train()
+        else:
+            model.eval()
 
         for batched_graph, congestion in pbar:
             pred = model(batched_graph)

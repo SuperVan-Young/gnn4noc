@@ -12,6 +12,11 @@ class MessagePassing(nn.Module):
         self.h_dim = h_dim
         self.lin_p = nn.Linear(h_dim, (h_dim ** 2) // 2)
         self.lin_c = nn.Linear(2 * h_dim, h_dim)
+        self.norm_r = nn.LayerNorm(h_dim)
+        self.norm_p = nn.LayerNorm(h_dim)
+        self.skip_r = nn.Parameter(torch.ones(1))  # learnable residual connection
+        self.skip_p = nn.Parameter(torch.ones(1))
+        self.drop = nn.Dropout(0.2)
 
     def forward(self, g:dgl.heterograph):
         # channel gather router hidden state
@@ -40,12 +45,18 @@ class MessagePassing(nn.Module):
         m = torch.relu(torch.concat([m_in, m_out], dim=1))
 
         # router update hidden state
-        g.nodes['router'].data['h'] = m + g.nodes['router'].data['h']
+        alpha_r = torch.sigmoid(self.skip_r)
+        g.nodes['router'].data['h'] = m * alpha_r + g.nodes['router'].data['h'] * (1 - alpha_r)
+        g.nodes['router'].data['h'] = self.drop(self.norm_r(g.nodes['router'].data['h']))
 
         # packet gather all channels information
-        c = torch.concat([g.nodes['channel'].data['h_in'], g.nodes['channel'].data['h_out']], dim=1).squeeze(-1)
-        g.nodes['channel'].data['c'] = c
+        g.nodes['channel'].data['c'] = torch.concat([g.nodes['channel'].data['h_in'], g.nodes['channel'].data['h_out']], dim=1).squeeze(-1)
         g.multi_update_all({'pass_inv': (fn.copy_u('c', 'm'), fn.mean('m', 'c'))}, 'sum')
-        g.nodes['packet'].data['h'] = torch.relu(self.lin_c(g.nodes['packet'].data['c'])) + g.nodes['packet'].data['h']
+        c = torch.relu(self.lin_c(g.nodes['packet'].data['c']))
+        
+        # packet update hidden state
+        alpha_p = torch.sigmoid(self.skip_p)
+        g.nodes['packet'].data['h'] = c * alpha_p + g.nodes['packet'].data['h'] * (1 - alpha_p)
+        g.nodes['packet'].data['h'] = self.drop(self.norm_p(g.nodes['packet'].data['h']))
 
         return m
