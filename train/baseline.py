@@ -28,8 +28,8 @@ if __name__ == "__main__":
     smaller_pred_base['pred_exp_max'] *= 2
 
     configs = [
-        # baseline_config,
-        hgt,
+        baseline_config,
+        # hgt,
     ]
 
     with mp.Pool(processes=1) as pool:

@@ -56,6 +56,7 @@ def train(model_config):
 
     model = HyperGraphModel(**model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=10)
 
     #------------------ Initialize Logger ----------------------------#
 
@@ -112,6 +113,10 @@ def train(model_config):
         logger.info(f"Testing acc  = {test_acc:.2%}")
         logger.append_test_loss(test_loss)
         logger.append_test_acc(test_acc)
+
+        # update lr
+        logger.info(f"Learning rate = {scheduler.get_last_lr()}")
+        scheduler.step()
 
     # --------------------- Dump Result -----------------------------# 
 
