@@ -32,6 +32,7 @@ class HyperGraphGenerator(GraphGenerator):
         packet_to_channel = dict()  # pid: cids
         router_to_channel_in = dict()  # rid: cids
         router_to_channel_out = dict()  # rid: cids
+        router_to_router = dict()  # rid: rids, direct connection
 
         pkt2id = SmartDict()
         rt2id = SmartDict()
@@ -61,12 +62,24 @@ class HyperGraphGenerator(GraphGenerator):
                 if cid not in router_to_channel_in[rid_d]:
                     router_to_channel_in[rid_d].append(cid)   # this channel is destination router's input channel
 
+                # add direct connection between routers
+                if rid_s not in router_to_router.keys():
+                    router_to_router[rid_s] = []
+                if rid_d not in router_to_router[rid_s]:
+                    router_to_router[rid_s].append(rid_d)
+                if rid_d not in router_to_router.keys():
+                    router_to_router[rid_d] = []
+                if rid_s not in router_to_router[rid_d]:
+                    router_to_router[rid_d].append(rid_s)
+
         pass_srcs, pass_dsts = self._parse_edges_dict(packet_to_channel)
         pass_inv_srcs, pass_inv_dsts = pass_dsts.clone().detach(), pass_srcs.clone().detach()
         output_srcs, output_dsts = self._parse_edges_dict(router_to_channel_out)
         output_inv_srcs, output_inv_dsts = output_dsts.clone().detach(), output_srcs.clone().detach()
         input_dsts, input_srcs = self._parse_edges_dict(router_to_channel_in)
         input_inv_srcs, input_inv_dsts = input_dsts.clone().detach(), input_srcs.clone().detach()
+        connect_srcs, connect_dsts = self._parse_edges_dict(router_to_router)
+
 
         graph = dgl.heterograph({
             ('packet', 'pass', 'channel'): (pass_srcs, pass_dsts),
@@ -75,6 +88,7 @@ class HyperGraphGenerator(GraphGenerator):
             ('channel', 'output_inv', 'router'): (output_inv_srcs, output_inv_dsts),
             ('channel', 'input', 'router'): (input_srcs, input_dsts),
             ('router', 'input_inv', 'channel'): (input_inv_srcs, input_inv_dsts),
+            ('router', 'connect', 'router'): (connect_srcs, connect_dsts),
         })
 
         return graph, pkt2id, rt2id, chan2id
@@ -120,8 +134,11 @@ class HyperGraphGenerator(GraphGenerator):
             if rid not in annotated:
                 op_type[rid:rid+1, :] += cast_op_type['noc']
         
+        inp = op_type.clone().detach()
+        
         return {
-            "op_type": op_type.float()
+            "op_type": op_type.float(),
+            "inp": inp.float()
         }
 
 
@@ -136,6 +153,7 @@ class HyperGraphGenerator(GraphGenerator):
         num_packets = len(pkt2id)
         freq = torch.zeros(num_packets)
         flit = torch.zeros(num_packets)
+        delay = torch.zeros(num_packets)
 
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != "data" or len(eattr["pkt"]) == 0:
@@ -144,13 +162,19 @@ class HyperGraphGenerator(GraphGenerator):
             pid = pkt2id[pkt]
             flit[pid:pid+1] = eattr['size']
             freq[pid:pid+1] = 1 / G.nodes[u]['delay']
+            delay[pid:pid+1] = G.nodes[u]['delay']
 
         flit = binarize_float(flit, 32)
         freq = freq.unsqueeze(-1)
+        delay = binarize_float(delay, 32)
+
+        inp = torch.cat((flit, delay), dim=1)
 
         return {
             "flit": flit.float(),
             "freq": freq.float(),
+            "delay": delay.float(),
+            "inp": inp.float(),
         }
 
     
@@ -169,8 +193,11 @@ class HyperGraphGenerator(GraphGenerator):
         bandwidth = bandwidth * 1024  
         bandwidth = binarize_float(bandwidth, 32)
 
+        inp = bandwidth.clone().detach()
+
         return {
-            "bandwidth": bandwidth.float()
+            "bandwidth": bandwidth.float(),
+            "inp": inp.float(),
         }
         
 

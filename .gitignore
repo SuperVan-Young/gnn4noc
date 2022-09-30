@@ -1,6 +1,6 @@
 intro
 *__pycache__*
-# dataset/data
+dataset/data
 test.ipynb
 dataset/tasks
 .vscode/*

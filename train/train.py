@@ -17,11 +17,8 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 example_model_config = {
     "h_dim": 64,
-    "activation":'ReLU',
-    "num_mp": 2,
-    "update": "activate",
-    "readout": "sum",
-    "pred_layer": 2,
+    "n_hid": 2,
+    "n_pred": 2,
     "pred_base" : 2.0,
     "pred_exp_min" : -2,
     "pred_exp_max" : 9,
@@ -77,7 +74,7 @@ def train(model_config):
 
         for batched_graph, congestion in pbar:
             pred = model(batched_graph)
-            labels = model.congestion_to_label(congestion)
+            labels = model.prediction_head.congestion_to_label(congestion)
             loss = F.cross_entropy(pred, labels)
             if train:
                 optimizer.zero_grad()
@@ -131,7 +128,7 @@ def train(model_config):
 
     for g, cong in congestion_dataloader:
         pred = model(g)
-        pred = model.label_to_congestion(pred.argmax(1).item())
+        pred = model.prediction_head.label_to_congestion(pred.argmax(1).item())
         logger.info(f"Ground Truth = {cong.item()}, Pred = {pred}")
 
 if __name__ == "__main__":
