@@ -29,7 +29,8 @@ if __name__ == "__main__":
 
     configs = [
         baseline_config,
-        # hgt,
+        # more_hid_layer,
+        hgt,
     ]
 
     with mp.Pool(processes=1) as pool:

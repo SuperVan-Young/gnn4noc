@@ -21,7 +21,7 @@ class PredictionHead(nn.Module):
         for i in range(n_pred):
             lin = nn.Sequential(
                 nn.Linear((2 if i == 0 else 1) * h_dim, h_dim if i != n_pred - 1 else pred_exp_max - pred_exp_min),
-                nn.ReLU()
+                nn.ELU()
             )
             self.lins.append(lin)
 
