@@ -19,11 +19,16 @@ class PredictionHead(nn.Module):
         self.lins = nn.ModuleList()
         self.n_pred = n_pred
         for i in range(n_pred):
-            lin = nn.Sequential(
-                nn.Linear((2 if i == 0 else 1) * h_dim, h_dim if i != n_pred - 1 else pred_exp_max - pred_exp_min),
-                nn.ELU()
-            )
-            self.lins.append(lin)
+            in_dim = h_dim if i != 0 else 2 * h_dim
+            out_dim = h_dim if i != n_pred - 1 else pred_exp_max - pred_exp_min
+            lin = [
+                nn.Linear(in_dim, out_dim),
+                nn.ELU(),
+            ]
+            # if i != n_pred - 1:
+            #     lin.append(nn.LayerNorm(out_dim))
+            #     lin.append(nn.Dropout(0.2))
+            self.lins.append(nn.Sequential(*lin))
 
         self.pred_base = pred_base
         self.pred_exp_min = pred_exp_min

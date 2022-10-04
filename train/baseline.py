@@ -6,7 +6,7 @@ if __name__ == "__main__":
     baseline_config = {
         "h_dim": 64,
         "n_hid": 2,
-        "n_pred": 2,
+        "n_pred": 3,
         "message_passing": "vanilla",
         "pred_base" : 2.0,
         "pred_exp_min" : -1,
