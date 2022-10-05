@@ -38,7 +38,7 @@ def train(model_config):
 
     #------------------ Initalize Dataset ----------------------------#
 
-    data_root = "/home/xuechenhao/gnn4noc/dataset/data/router/"
+    data_root = "/home/xuechenhao/gnn4noc/dataset/data/router_cnt/"
     dataset = NoCDataset(data_root=data_root)
 
     num_examples = len(dataset)

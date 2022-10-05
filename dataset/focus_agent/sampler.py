@@ -99,7 +99,7 @@ class LayerSample():
             params[k] = args[k]
         return params
 
-    def to_pandas(self):
+    def to_dataframe(self):
         cnt_index = 0
         args = self.params
         layer = self.__repr__()
@@ -151,10 +151,14 @@ class LayerSample():
 
 
 class LayerSampler():
-    def __init__(self) -> None:
+    def __init__(self, seed=None) -> None:
         # set fixed random seed for deterministic result
         # random.seed(114514)
-        random.seed(int(time.time()))
+        if seed == None:
+            random.seed(int(time.time()))
+        else:
+            assert isinstance(seed, int)
+            random.seed(seed)
 
         # set ranges, which should run successfully within 5 min
         self.ratio_range = 128
