@@ -2,6 +2,9 @@ import os
 import random
 import yaml
 import re
+import time
+import pandas as pd
+import numpy as np
 
 def sample_within_range(distribution, min, max):
     """Sample from given distribution, but only keep valid value from (min, max)
@@ -39,6 +42,8 @@ class LayerSample():
         return s
 
     def dump(self, save_root, model_name=None):
+        """Dump to model config for focus scheduler.
+        """
         s = self.__repr__()
         if model_name == None:
             model_name = s
@@ -94,10 +99,63 @@ class LayerSample():
             params[k] = args[k]
         return params
 
+    def to_pandas(self):
+        cnt_index = 0
+        args = self.params
+        layer = self.__repr__()
+        df = pd.DataFrame(columns=['index', 'counts', 'datatype', 'dst', 'flit',\
+            'interval', 'layer', 'src', 'delay'])
+        
+        # add edges from src to worker
+        for suffix in ['w', 'i']:
+            tmp_dict = {
+                'layer': layer,
+                'src': -3 if suffix == 'w' else -1,
+                'dst': None,
+                'counts': args['cnt_'+suffix],
+                'flit': args['flit_'+suffix],
+                'interval': args['delay_'+suffix],
+                'delay': np.nan,
+                'datatype': "weight" if suffix == 'w' else "input",
+                'index': None,
+            }
+            if args['broadcast_'+suffix]:
+                tmp_dict['dst'] = list(range(args['worker']))
+                tmp_dict['index'] = cnt_index
+                cnt_index += 1
+                df = df.append(tmp_dict, ignore_index=True)
+            else:
+                for d in range(args['worker']):
+                    tmp_dict['dst'] = d
+                    tmp_dict['index'] = cnt_index
+                    cnt_index += 1
+                    df = df.append(tmp_dict, ignore_index=True)
+
+        # add edges from worker to sink
+        for worker in range(args['worker']):
+            tmp_dict = {
+                'layer': layer,
+                'src': worker ,
+                'dst': -2,
+                'counts': args['cnt_o'],
+                'flit': args['flit_o'],
+                'interval': args['delay_o'],
+                'delay': args['delay_o'],
+                'datatype': "output",
+                'index': cnt_index,
+            }
+            cnt_index += 1
+            df = df.append(tmp_dict, ignore_index=True)
+
+        return df
+
 
 class LayerSampler():
     def __init__(self) -> None:
-        random.seed(114514)
+        # set fixed random seed for deterministic result
+        # random.seed(114514)
+        random.seed(int(time.time()))
+
         # set ranges, which should run successfully within 5 min
         self.ratio_range = 128
         self.cnt_range = 2 ** 12
@@ -174,8 +232,8 @@ class LayerSampler():
             "wos": (1, x, 1),
             "ios": (x, 1, 1),
         }
-        distribution = lambda : int(2 ** random.uniform(0, 10))
-        cnt_factor = sample_within_range(distribution, 1, self.cnt_range // x)
+        # distribution = lambda : int(2 ** random.uniform(0, 10))
+        cnt_factor = 64  # 128 is too big ... 
         ret = [i * cnt_factor for i in results[dataflow_type]]
         return ret
 

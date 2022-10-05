@@ -20,11 +20,11 @@ def parse_args():
 
     parser.add_argument("-f", "--focus", dest="run_focus", action="store_true",
                         help="Run FOCUS toolchain and fetch results")
-    parser.add_argument("-n", dest="num_samples", type=int, default=10000,
+    parser.add_argument("-n", dest="num_samples", type=int, default=20000,
                         help="Number of samples")
     parser.add_argument("-c", "--convert", dest="convert", action="store_true",
                         help="Convert the simulation result to data.")
-    parser.add_argument("-w", "--worker", type=int, default=4,
+    parser.add_argument("-w", "--worker", type=int, default=2,
                         help="Number of working threads.")
     parser.add_argument("--array_size", type=int, default=8,
                         help="core array size")
@@ -84,7 +84,7 @@ def run_focus(layer):
     agent = FocusAgent(fake_trace=True, simulate=True)
     
     try:
-        agent.run_focus(benchmark_path, gc.build_array_size, gc.build_flit_size, timeout=300)
+        agent.run_focus(benchmark_path, gc.build_array_size, gc.build_flit_size, timeout=600)
     except TimeoutError:
         print(f"Build: simulating layer {taskname} timeout.")
         os.system(f"rm -r {task_root}")
