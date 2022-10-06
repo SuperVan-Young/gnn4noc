@@ -89,7 +89,7 @@ class OpGraphVisualizer:
 
         assert len([u for u, nattr in G.nodes(data=True) if nattr["op_type"] == "sink"]) == 1
 
-        plt.figure(figsize=[array_size*0.2, array_size*0.2])
+        plt.figure(figsize=[array_size, array_size])
         plt.xticks(range(0, array_size-1, 2))
         plt.yticks(range(0, array_size-1, 2))
         plt.xlim(-1, array_size)
@@ -113,11 +113,15 @@ class OpGraphVisualizer:
         node2pos = lambda u: (G.nodes[u]["p_pe"] % array_size, G.nodes[u]["p_pe"] // array_size)
         channel2cnt = dict()
         
+        routed_packets = []
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != "data" or len(eattr["pkt"]) == 0:
                 continue  # could happen when insrc and worker on the same pe
             pkt = eattr["pkt"][0]
             u_pe, v_pe = node2pe(u), node2pe(v)
+            if pkt in routed_packets:
+                continue
+            routed_packets.append(pkt)
             channels = self.trace_parser.routing_parser.get_routing_hops(u_pe, v_pe, pkt)
 
             for s, d in channels:
@@ -131,8 +135,17 @@ class OpGraphVisualizer:
         for chan, cnt in channel2cnt.items():
             s, d = chan
             s_pos, d_pos = pe2pos(s), pe2pos(d)
-            plt.arrow(s_pos[0], s_pos[1], d_pos[0]-s_pos[0], d_pos[1]-s_pos[1], width=0.05, color='r', alpha=cnt/max_cnt)
-            plt.text((s_pos[0]+d_pos[0])/2 - 0.2, (s_pos[1]+d_pos[1])/2 - 0.2, str(cnt), fontsize=7)
+            dx, dy = d_pos[0] - s_pos[0], d_pos[1] - s_pos[1]
+            text_x = (s_pos[0]+d_pos[0])/2 - 0.1 * dy - 0.05
+            text_y = (s_pos[1]+d_pos[1])/2 + 0.1 * dx - 0.05
+            # arrow direction -> text side
+            # down: left
+            # up: right
+            # right: up
+            # left: down
+
+            plt.arrow(s_pos[0] + 0.1*dx - 0.08*dy, s_pos[1] + 0.1*dy + 0.08*dx, dx*0.8, dy*0.8, width=0.01, head_width=0.05, color='r', alpha=cnt/max_cnt)
+            plt.text(text_x, text_y, str(cnt), fontsize=8)
 
         plt.savefig(self.save_path)
         plt.clf()
@@ -220,7 +233,8 @@ class OpGraphVisualizer:
 
 if __name__ == "__main__":
     save_path = "test.png"
-    taskname = "bert-large_b1w1024_32x32"
+    # taskname = "bert-large_b1w1024_32x32"
+    taskname = "cw64_ci64_co64_bw0_bi1_fw100_fi100_fo100_dw1_di1_do1_n8"+"_b1w1024_8x8"
     graph_path = "/home/xuechenhao/focus_scheduler/buffer/op_graph/op_graph_" + taskname + ".gpickle"
     outlog_path = "/home/xuechenhao/focus_scheduler/simulator/tasks/" + taskname + "/out.log"
     routing_path = "/home/xuechenhao/focus_scheduler/simulator/tasks/" + taskname + "/routing_board"
@@ -233,4 +247,4 @@ if __name__ == "__main__":
     )
 
     visualizer = OpGraphVisualizer(save_path, trace_parser)
-    visualizer.plot_mapping("bert-large_layer1")
+    visualizer.plot_mapping("cw64_ci64_co64_bw0_bi1_fw100_fi100_fo100_dw1_di1_do1_n8")
