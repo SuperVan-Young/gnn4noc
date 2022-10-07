@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pandas import array
 
-from trace_parser import TraceParser
+from trace_parser.trace_parser import TraceParser
 
 class OpGraphVisualizer:
 
@@ -77,8 +77,12 @@ class OpGraphVisualizer:
             nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, alpha=0.5, font_size=8)
 
         # save the whole graph
-        plt.savefig(self.save_path)
-        plt.clf()
+        if self.save_path != None:
+            plt.savefig(self.save_path)
+            plt.clf()
+        else:
+            plt.plot()
+            plt.show()
 
     def plot_mapping(self, layer_name:str):
         G = self.trace_parser.graph_parser.get_graph()
@@ -90,8 +94,8 @@ class OpGraphVisualizer:
         assert len([u for u, nattr in G.nodes(data=True) if nattr["op_type"] == "sink"]) == 1
 
         plt.figure(figsize=[array_size, array_size])
-        plt.xticks(range(0, array_size-1, 2))
-        plt.yticks(range(0, array_size-1, 2))
+        plt.xticks(range(0, array_size))
+        plt.yticks(range(0, array_size))
         plt.xlim(-1, array_size)
         plt.ylim(-1, array_size)
 
@@ -147,8 +151,12 @@ class OpGraphVisualizer:
             plt.arrow(s_pos[0] + 0.1*dx - 0.08*dy, s_pos[1] + 0.1*dy + 0.08*dx, dx*0.8, dy*0.8, width=0.01, head_width=0.05, color='r', alpha=cnt/max_cnt)
             plt.text(text_x, text_y, str(cnt), fontsize=8)
 
-        plt.savefig(self.save_path)
-        plt.clf()
+        if self.save_path != None:
+            plt.savefig(self.save_path)
+            plt.clf()
+        else:
+            plt.plot()
+            plt.show()
 
     def _get_node_label(self, node_type:str):
         """

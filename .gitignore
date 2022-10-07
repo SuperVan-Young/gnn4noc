@@ -7,3 +7,4 @@ dataset/tasks
 train/log/*
 predict/tmp
 *.png
+dataset/scripts/throughput
