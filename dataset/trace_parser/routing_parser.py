@@ -19,6 +19,11 @@ class RoutingParser():
         else:
             return self.__parse_unicast_hops(src, dst)
 
+    def is_multicast_packet(self, pid):
+        if self.__multicast_routing == None:
+            # parse multicast on demand
+            self.__parse_routing_board()
+        return pid in self.__multicast_routing.keys()
 
     def __parse_unicast_hops(self, src, dst):
         """Parse every hop from src PE to dst PE.
