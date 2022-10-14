@@ -4,6 +4,7 @@ import numpy as np
 sys.path.append("..")
 
 from exp_predictor import ExperiencePredictor
+from lp_predictor import LinearProgrammingPredictor
 from trace_parser.trace_parser import TraceParser
 from focus_agent.focus_agent import FocusAgent
 
@@ -33,9 +34,11 @@ def predict_real_model(model_name):
         agent.get_routing_path(model_name),
         agent.get_spec_path(model_name),
     )
+    # predictor = ExperiencePredictor(trace_parser)
     predictor = ExperiencePredictor(trace_parser)
     total_latency = 0
     for layer_name in trace_parser.graph_parser.get_layers():
+        # total_latency += predictor.predict_latency(layer_name)
         total_latency += predictor.predict_latency(layer_name)
     
     ground_truth = trace_parser.outlog_parser.get_total_latency()
