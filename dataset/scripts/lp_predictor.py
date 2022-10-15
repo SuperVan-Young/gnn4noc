@@ -41,6 +41,13 @@ class LinearProgrammingPredictor():
         dx, dy = d_pe // k, d_pe % k
         return directions[(dx-sx, dy-sy)]
 
+    def _get_credit_stall_factor(self, flit):
+        # on the long run, pipeline is withheld by credit
+        factor = max(1, 4 / self.trace_parser.spec_parser.get_vc_buf_size())
+        # but for short packets, virtual channels relieve this problem
+        factor = min(factor, flit / 2) # the best dividend is 2
+        return factor
+
 
     def _mark_computation_edges(self):
         """Mark flow from same computation source with the same flow id.
@@ -104,19 +111,19 @@ class LinearProgrammingPredictor():
                     routers[s_pe][direction].append(flow_info)
 
         # constraints on all output ports
-        # smaller vc buf size degrades utility of channel bandwidth
-        credit_stall_factor = max(1, 4 / self.trace_parser.spec_parser.get_vc_buf_size())
         # packets from the same flow cannot fully pipeline
-        pipeline_stall_factor = 3  # RC, VA, ..., W
+        # pipeline_stall_factor = 3  # RC, VA, ..., W
+        pipeline_stall_factor = 2  # The best I got is this
 
         for out_ports in routers:
             for direction, flows in out_ports.items():
                 if len(flows) == 0: continue
                 A_ub = np.zeros(self.flow_cnt)
                 for flow in flows:
-                    A_ub[flow['lpid']] += (flow['flit'] + pipeline_stall_factor) 
+                    credit_stall_factor = self._get_credit_stall_factor(flow['flit'])
+                    A_ub[flow['lpid']] += (flow['flit'] + pipeline_stall_factor) * credit_stall_factor
                 self.A_ub.append(A_ub) 
-                self.b_ub.append(np.ones(1) / credit_stall_factor)
+                self.b_ub.append(np.ones(1))
 
     def _add_dependency_constraints(self):
         """Output flow's injection rate is limited by input flow
@@ -153,7 +160,6 @@ class LinearProgrammingPredictor():
         G = self.G
         # add interval in the same flow
         lpid_to_interval = {i: 0 for i in range(1, self.flow_cnt)}
-        credit_stall_factor = max(1, 4 / self.trace_parser.spec_parser.get_vc_buf_size())
 
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != 'data' or len(eattr['pkt']) == 0:
@@ -165,8 +171,12 @@ class LinearProgrammingPredictor():
             num_hops = len(self.trace_parser.routing_parser.get_routing_hops(u_pe, v_pe, pid))
             
             # solve a simple chasing problem, and get this...
+            credit_stall_factor = self._get_credit_stall_factor(eattr['size'])
             packet_interval = min(num_hops, eattr['size']) * (1 - credit_stall_factor / 4)
-            lpid_to_interval[lpid] += packet_interval + eattr['size']
+            if self.trace_parser.routing_parser.is_multicast_packet(pid):
+                lpid_to_interval[lpid] = packet_interval + eattr['size'] * credit_stall_factor
+            else:
+                lpid_to_interval[lpid] += packet_interval + eattr['size'] * credit_stall_factor
 
         for lpid, interval in lpid_to_interval.items():
             A_ub = np.zeros(self.flow_cnt)
@@ -201,7 +211,7 @@ class LinearProgrammingPredictor():
         A_ub = np.stack(self.A_ub)
         b_ub = np.stack(self.b_ub)
         bounds = [(0, None) for _ in range(self.flow_cnt)]
-        result = linprog(c=c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, options={'autoscale': True})
+        result = linprog(c=c, A_ub=A_ub, b_ub=b_ub, bounds=bounds)
 
         # print(A_ub)
         # print(b_ub)
@@ -253,9 +263,11 @@ def test_fake_layers():
         pbar.set_description(f"{(estimated_latency - ground_truth) / ground_truth}")
         latencies.append((estimated_latency, ground_truth))
 
-    errors = np.abs([(x - y) / y for x, y in latencies])
+    errors = np.array([(x - y) / y for x, y in latencies])
     print(f"mean = {np.average(errors)}")
     print(f"std = {np.std(errors)}")
+
+    return errors
 
 def test_example():
     agent = FocusAgent(fake_trace=True, simulate=True)
