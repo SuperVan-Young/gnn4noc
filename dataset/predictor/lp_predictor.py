@@ -16,9 +16,9 @@ class LinearProgrammingPredictor():
     """Linear Programming predictor for single layer.
     """
 
-    def __init__(self, trace_parser:TraceParser, layer_name=None) -> None:
+    def __init__(self, trace_parser:TraceParser) -> None:
         self.trace_parser = trace_parser
-        self.G = self.trace_parser.graph_parser.get_graph(layer_name, batch=0)
+        self.G = None
         self.flow_cnt = 1  # remember to save for a fake variable
         self.A_ub = []  # list of 1d np.array
         self.b_ub = []  # list of 0d np.array
@@ -198,7 +198,15 @@ class LinearProgrammingPredictor():
             self.A_ub.append(A_ub)
             self.b_ub.append(np.zeros(1))
 
-    def run(self):
+    def run(self, layer_name=None):
+        # reset parameters
+        self.G = self.trace_parser.graph_parser.get_graph(layer_name, batch=0)
+        self.flow_cnt = 1
+        self.A_ub = []
+        self.b_ub = []
+        self.A_eq = []
+        self.b_eq = []
+
         self._mark_computation_edges()
         self._add_router_constraint()
         self._add_dependency_constraints()
@@ -279,10 +287,10 @@ def test_example():
         agent.get_spec_path(taskname),
     )
 
-    predictor = LinearProgrammingPredictor(trace_parser, None)
+    predictor = LinearProgrammingPredictor(trace_parser)
     result = predictor.run()
     print(result)
 
 if __name__ == '__main__':
-    test_fake_layers()
-    # test_example()
+    # test_fake_layers()
+    test_example()
