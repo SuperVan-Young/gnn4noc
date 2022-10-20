@@ -1,5 +1,6 @@
 import os
 import random
+from torch import short
 import yaml
 import re
 import time
@@ -87,6 +88,8 @@ class LayerSample():
         }
         for t in s.split('_'):
             i = re.search('\d+', t).span()[0]
+            if t[:i] not in short2full.keys():
+                continue
             key = short2full[t[:i]]
             val = int(t[i:])
             params[key] = val
