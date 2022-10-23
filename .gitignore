@@ -8,4 +8,4 @@ train/log/*
 predict/tmp
 *.png
 dataset/scripts/throughput
-dataset/scripts/multitasks
+dataset/scripts/tasks
