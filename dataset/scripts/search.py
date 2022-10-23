@@ -1,5 +1,6 @@
 import os
 import sys
+from xml.etree.ElementInclude import default_loader
 import yaml
 import time
 from copy import deepcopy
@@ -34,6 +35,30 @@ def generate_benchmark(args):
         1: 1*32,
         2: 4*32,
         3: 4*32,
+    }
+    benchmark = [{f"gpt2-xl_layer{i + 1}": layer2core[i % 4]} for i in range(16 if not is_debug else 1)]
+    benchmark = {model_name: benchmark}
+
+    save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks", model_name)
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
+
+    save_path = os.path.join(save_dir, "model.yaml")
+    with open(save_path, "w") as f:
+        yaml.dump(benchmark, f)
+    
+    return save_path, model_name
+
+def generate_arch_comp_benchmark(args):
+    """Generate architecture benchmark"""
+    model_name = f"gpt2-xl-tiny_m{args['num_mac']}_v{args['num_vcs']}_bs{args['vc_buf_size']}"
+
+    num_core = 512 // args['num_mac'] # 512 MAC for 1 'share' of computation
+    layer2core = {
+        0: 3*num_core,
+        1: 1*num_core,
+        2: 4*num_core,
+        3: 4*num_core,
     }
     benchmark = [{f"gpt2-xl_layer{i + 1}": layer2core[i % 4]} for i in range(16 if not is_debug else 1)]
     benchmark = {model_name: benchmark}
@@ -83,21 +108,55 @@ def generate_testcase():
     return testcase_list
 
 
+def generate_arch_comp_testcase():
+    cerebras_config = {
+        'array_size': 64,
+        "num_mac": 4,
+        "bandwidth": 32,
+        "num_vcs": 4,
+        "vc_buf_size": 2,
+    }
+    cerebras_ultra_config = {
+        'array_size': 8,
+        "num_mac": 4*64,
+        "bandwidth": 32*64,
+        "num_vcs": 4,
+        "vc_buf_size": 2,
+    }
+    dojo_config = {
+        'array_size': 64,
+        "num_mac": 256,
+        "bandwidth": 128,
+        "num_vcs": 4,
+        "vc_buf_size": 2,
+    }
+    return [cerebras_config, cerebras_ultra_config, dojo_config]
+
+
 def adjust_mac(num):
     """Adjust arch config yaml number of mac
     """
     assert num >= 2
-    arch_path = os.path.join(gc.focus_root, "database", "arch", "cerebras_like.yaml")
+    arch_path = os.path.join(gc.focus_root, "database", "arch_bu", "cerebras_like.yaml")
     with open(arch_path, 'r') as f:
         arch_config = yaml.load(f, Loader=yaml.FullLoader)
-    arch_config['architecture']['subtree'][0]['subtree'][0]['subtree'][0]['local'][-1]['name'] = f"LMAC[0..{num-1}]"
+    equiv_pe = num // 4
+    pe_name = "PE" if equiv_pe == 1 else f"PE[0..{equiv_pe-1}]"
+    arch_config['architecture']['subtree'][0]['subtree'][0]['subtree'][0]['name'] = pe_name
+    # arch_config['architecture']['subtree'][0]['subtree'][0]['subtree'][0]['local'][-1]['name'] = f"LMAC[0..{num-1}]"
+
+    arch_path = os.path.join(gc.focus_root, "database", "arch", "cerebras_like.yaml")
     with open(arch_path, 'w') as f:
         yaml.dump(arch_config, f)
 
 #----------------------------- run single task -----------------------------------
 
-def run_single_task(args, timeout=300):
-    benchmark_path, model_name = generate_benchmark(args)
+def run_single_task(args, timeout=1000, arch_comp=False):
+    if not arch_comp:
+        benchmark_path, model_name = generate_benchmark(args)
+    else:
+        benchmark_path, model_name = generate_arch_comp_benchmark(args)
+
     adjust_mac(args['num_mac'])
 
     focus_path = os.path.join(gc.focus_root, "focus.py")
@@ -109,7 +168,14 @@ def run_single_task(args, timeout=300):
     if is_debug:
         command += " -debug"
 
-    if is_debug:
+    taskname = f"{model_name}_b1w{args['bandwidth']}_{array_size}x{array_size}"
+    out_log_path = os.path.join(gc.simulator_root, taskname, "out.log")
+    if os.path.exists(out_log_path):
+        os.system(f"rm {out_log_path}")
+    print(taskname)
+
+    # if is_debug:
+    if True:
         sp = subprocess.Popen(command, shell=True, start_new_session=True)
     else:
         sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -117,8 +183,6 @@ def run_single_task(args, timeout=300):
 
     for _ in range(timeout):
         time.sleep(1)
-        taskname = f"{model_name}_b1w{args['bandwidth']}_{array_size}x{array_size}"
-        out_log_path = os.path.join(gc.simulator_root, taskname, "out.log")
         if os.path.exists(out_log_path):
             os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
             return True
@@ -126,7 +190,16 @@ def run_single_task(args, timeout=300):
     print(f"Timeout when running task: {args}")
     return False
 
+def run_multiple_task():
+    testcases = generate_testcase()
+
+    for cfg in testcases:
+        run_single_task(cfg)
+
+    testcases = generate_arch_comp_benchmark()
+    for cfg in testcases:
+        run_single_task(cfg, arch_comp=True)
+
 
 if __name__ == '__main__':
-    is_debug = True
-    run_single_task(default_config)
+    run_multiple_task()
