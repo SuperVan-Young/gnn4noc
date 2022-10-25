@@ -1,10 +1,8 @@
 import os
 import sys
-from matplotlib.pyplot import autoscale
 import numpy as np
 from tqdm import tqdm
 from scipy.optimize import linprog
-import networkx as nx
 sys.path.append("..")
 
 import global_control as gc
@@ -44,10 +42,14 @@ class LinearProgrammingPredictor():
     def _get_credit_stall_factor(self, flit):
         # on the long run, pipeline is withheld by credit
         factor = max(1, 4 / self.trace_parser.spec_parser.get_vc_buf_size())
-        # but for short packets, virtual channels relieve this problem
-        factor = min(factor, flit / 2) # the best dividend is 2
+        # but for very short packets, virtual channels relieve this problem
+        thresh = 4
+        if flit <= thresh:
+            factor = (factor - 1) / (thresh - 2) * (flit - 2) + 1
         return factor
 
+    def _get_pipeline_stall_factor(self):
+        return 2
 
     def _mark_computation_edges(self):
         """Mark flow from same computation source with the same flow id.
@@ -112,8 +114,7 @@ class LinearProgrammingPredictor():
 
         # constraints on all output ports
         # packets from the same flow cannot fully pipeline
-        # pipeline_stall_factor = 3  # RC, VA, ..., W
-        pipeline_stall_factor = 2  # The best I got is this
+        pipeline_stall_factor = self._get_pipeline_stall_factor()
 
         for out_ports in routers:
             for direction, flows in out_ports.items():
@@ -126,7 +127,8 @@ class LinearProgrammingPredictor():
                 self.b_ub.append(np.ones(1))
 
     def _add_dependency_constraints(self):
-        """Output flow's injection rate is limited by input flow
+        """Output flow's injection rate is limited by input flow.
+        Weight/input src input flow limits each other.
         """
         G = self.G
 
@@ -141,6 +143,22 @@ class LinearProgrammingPredictor():
                     A_ub[eattr_in['lpid']] = - G.nodes[src]['delay'] / G.nodes[u]['delay']
                     self.A_ub.append(A_ub)
                     self.b_ub.append(np.zeros(1))
+            
+            # between flows
+            wsrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'wsrc']
+            insrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'insrc']
+            assert(len(wsrcs) == 1)
+            assert(len(insrcs) == 1)
+            wsrc = wsrcs[0]
+            insrc = insrcs[0]
+            flow_w = G.edges[wsrc, u]['lpid']
+            flow_i = G.edges[insrc, u]['lpid']
+            A_eq = np.zeros(self.flow_cnt)
+            A_eq[flow_w] = G.nodes[wsrc]['delay']
+            A_eq[flow_i] = -G.nodes[insrc]['delay']
+            b_eq = np.zeros(1)
+            self.A_eq.append(A_eq)
+            self.b_eq.append(b_eq)
 
     def _add_source_constraints(self):
         """Flow's injection rate is no more than production rate
@@ -218,8 +236,10 @@ class LinearProgrammingPredictor():
         c[0] = -1
         A_ub = np.stack(self.A_ub)
         b_ub = np.stack(self.b_ub)
+        A_eq = np.stack(self.A_eq)
+        b_eq = np.stack(self.b_eq)
         bounds = [(0, None) for _ in range(self.flow_cnt)]
-        result = linprog(c=c, A_ub=A_ub, b_ub=b_ub, bounds=bounds)
+        result = linprog(c=c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
 
         # print(A_ub)
         # print(b_ub)

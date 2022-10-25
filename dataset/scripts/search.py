@@ -1,6 +1,5 @@
 import os
 import sys
-from xml.etree.ElementInclude import default_loader
 import yaml
 import time
 from copy import deepcopy
@@ -9,13 +8,15 @@ import subprocess
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import global_control as gc
+from trace_parser.trace_parser import TraceParser
+from predictor.lp_predictor import LinearProgrammingPredictor
 
 is_debug = False
 
 #-------------------------------- default config ------------------------------
 
 default_config = {
-    'array_size': 64,
+    'array_size': 32,
     "num_mac": 64,
     "bandwidth": 1024,
     "num_vcs": 4,
@@ -38,7 +39,7 @@ def generate_benchmark(args):
         2: 4*32,
         3: 4*32,
     }
-    benchmark = [{f"gpt2-xl_layer{i + 1}": layer2core[i % 4]} for i in range(16 if not is_debug else 1)]
+    benchmark = [{f"gpt2-xl_layer{i + 1}": layer2core[i % 4]} for i in range(4 if not is_debug else 1)]
     benchmark = {model_name: benchmark}
 
     save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks", taskname)
@@ -125,7 +126,7 @@ def run_single_task(args, timeout=1000, fetch_result=False):
         if os.path.exists(out_log_path):
             os.system(f"rm {out_log_path}")
         # if is_debug:
-        if True:
+        if False:
             sp = subprocess.Popen(command, shell=True, start_new_session=True)
         else:
             sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -134,20 +135,32 @@ def run_single_task(args, timeout=1000, fetch_result=False):
         for _ in range(timeout):
             time.sleep(1)
             if os.path.exists(out_log_path):
-                os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
+                # predict latency
+                graph_path = os.path.join(gc.op_graph_root, f"op_graph_{taskname}.gpickle")
+                routing_path = os.path.join(gc.simulator_root, taskname, "routing_board")
+                spec_path = os.path.join(gc.simulator_root, taskname, "spatial_spec")
+
+                trace_parser = TraceParser(graph_path, None, routing_path, spec_path)
+                predictor = LinearProgrammingPredictor(trace_parser)
+                total_latency = 0
+                for layer_name in trace_parser.graph_parser.get_layers():
+                    # total_latency += predictor.predict_latency(layer_name)
+                    total_latency += predictor.run(layer_name)
+                
+                print(f"Predicted latency: {total_latency}")
+
                 return True
 
         print(f"Timeout when running task: {args}")
         return False
     else:
-        # assert os.path.exists(out_log_path)
         os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
 
 
 def run_multiple_task():
     testcases = generate_testcase()
     for cfg in testcases:
-        run_single_task(cfg, fetch_result=True)
+        run_single_task(cfg, fetch_result=False)
 
 if __name__ == '__main__':
     run_multiple_task()
