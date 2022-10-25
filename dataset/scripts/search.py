@@ -29,6 +29,8 @@ def generate_benchmark(args):
     Returns: save_path, model_name
     """
     model_name = f"gpt2-xl_m{args['num_mac']}_v{args['num_vcs']}_bs{args['vc_buf_size']}"
+    array_size = args['array_size']
+    taskname = f"{model_name}_b1w{args['bandwidth']}_{array_size}x{array_size}"
 
     layer2core = {
         0: 3*32,
@@ -39,31 +41,7 @@ def generate_benchmark(args):
     benchmark = [{f"gpt2-xl_layer{i + 1}": layer2core[i % 4]} for i in range(16 if not is_debug else 1)]
     benchmark = {model_name: benchmark}
 
-    save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks", model_name)
-    if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
-
-    save_path = os.path.join(save_dir, "model.yaml")
-    with open(save_path, "w") as f:
-        yaml.dump(benchmark, f)
-    
-    return save_path, model_name
-
-def generate_arch_comp_benchmark(args):
-    """Generate architecture benchmark"""
-    model_name = f"gpt2-xl-tiny_m{args['num_mac']}_v{args['num_vcs']}_bs{args['vc_buf_size']}"
-
-    num_core = 512 // args['num_mac'] # 512 MAC for 1 'share' of computation
-    layer2core = {
-        0: 3*num_core,
-        1: 1*num_core,
-        2: 4*num_core,
-        3: 4*num_core,
-    }
-    benchmark = [{f"gpt2-xl_layer{i + 1}": layer2core[i % 4]} for i in range(16 if not is_debug else 1)]
-    benchmark = {model_name: benchmark}
-
-    save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks", model_name)
+    save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks", taskname)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
@@ -107,32 +85,6 @@ def generate_testcase():
 
     return testcase_list
 
-
-def generate_arch_comp_testcase():
-    cerebras_config = {
-        'array_size': 64,
-        "num_mac": 4,
-        "bandwidth": 32,
-        "num_vcs": 4,
-        "vc_buf_size": 2,
-    }
-    cerebras_ultra_config = {
-        'array_size': 8,
-        "num_mac": 4*64,
-        "bandwidth": 32*64,
-        "num_vcs": 4,
-        "vc_buf_size": 2,
-    }
-    dojo_config = {
-        'array_size': 64,
-        "num_mac": 256,
-        "bandwidth": 128,
-        "num_vcs": 4,
-        "vc_buf_size": 2,
-    }
-    return [cerebras_config, cerebras_ultra_config, dojo_config]
-
-
 def adjust_mac(num):
     """Adjust arch config yaml number of mac
     """
@@ -151,11 +103,8 @@ def adjust_mac(num):
 
 #----------------------------- run single task -----------------------------------
 
-def run_single_task(args, timeout=1000, arch_comp=False):
-    if not arch_comp:
-        benchmark_path, model_name = generate_benchmark(args)
-    else:
-        benchmark_path, model_name = generate_arch_comp_benchmark(args)
+def run_single_task(args, timeout=1000, fetch_result=False):
+    benchmark_path, model_name = generate_benchmark(args)
 
     adjust_mac(args['num_mac'])
 
@@ -170,36 +119,35 @@ def run_single_task(args, timeout=1000, arch_comp=False):
 
     taskname = f"{model_name}_b1w{args['bandwidth']}_{array_size}x{array_size}"
     out_log_path = os.path.join(gc.simulator_root, taskname, "out.log")
-    if os.path.exists(out_log_path):
-        os.system(f"rm {out_log_path}")
     print(taskname)
 
-    # if is_debug:
-    if True:
-        sp = subprocess.Popen(command, shell=True, start_new_session=True)
-    else:
-        sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                shell=True, start_new_session=True)
-
-    for _ in range(timeout):
-        time.sleep(1)
+    if not fetch_result:
         if os.path.exists(out_log_path):
-            os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
-            return True
+            os.system(f"rm {out_log_path}")
+        # if is_debug:
+        if True:
+            sp = subprocess.Popen(command, shell=True, start_new_session=True)
+        else:
+            sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    shell=True, start_new_session=True)
 
-    print(f"Timeout when running task: {args}")
-    return False
+        for _ in range(timeout):
+            time.sleep(1)
+            if os.path.exists(out_log_path):
+                os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
+                return True
+
+        print(f"Timeout when running task: {args}")
+        return False
+    else:
+        # assert os.path.exists(out_log_path)
+        os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
+
 
 def run_multiple_task():
     testcases = generate_testcase()
-
     for cfg in testcases:
-        run_single_task(cfg)
-
-    testcases = generate_arch_comp_benchmark()
-    for cfg in testcases:
-        run_single_task(cfg, arch_comp=True)
-
+        run_single_task(cfg, fetch_result=True)
 
 if __name__ == '__main__':
     run_multiple_task()
