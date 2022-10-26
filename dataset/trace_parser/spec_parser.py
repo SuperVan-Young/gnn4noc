@@ -31,3 +31,8 @@ class SpecParser():
         if self.spec_info == None:
             self.__parse_spec()
         return int(self.spec_info["k"])
+
+    def get_vc_buf_size(self):
+        if self.spec_info == None:
+            self.__parse_spec()
+        return int(self.spec_info["vc_buf_size"])

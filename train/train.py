@@ -17,13 +17,11 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 example_model_config = {
     "h_dim": 64,
-    "activation":'ReLU',
-    "num_mp": 2,
-    "update": "activate",
-    "readout": "sum",
-    "pred_layer": 2,
+    "n_hid": 2,
+    "n_pred": 2,
+    "message_passing": "HGT",
     "pred_base" : 2.0,
-    "pred_exp_min" : -2,
+    "pred_exp_min" : -1,
     "pred_exp_max" : 9,
 }
 
@@ -40,8 +38,8 @@ def train(model_config):
 
     #------------------ Initalize Dataset ----------------------------#
 
-    data_root = os.path.join("/home/xuechenhao/gnn4noc/dataset/data/output_port/")
-    dataset = NoCDataset(data_root)
+    data_root = "/home/xuechenhao/gnn4noc/dataset/data/router_cnt/"
+    dataset = NoCDataset(data_root=data_root)
 
     num_examples = len(dataset)
     num_train = int(num_examples * 0.9)
@@ -57,11 +55,13 @@ def train(model_config):
     #------------------ Initialize Model ----------------------------#
 
     model = HyperGraphModel(**model_config).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=10, eta_min=3e-5)
 
     #------------------ Initialize Logger ----------------------------#
 
     logger = Logger("Hyper Graph Model", model, verbosity=verbosity)
+    logger.info(f"data root = {data_root}")
     for key, val in model_config.items():
         logger.info(f"{key} = {val}")
 
@@ -73,10 +73,14 @@ def train(model_config):
         total = 0
 
         pbar = tqdm(dataloader, desc="train" if train else "test")
+        if train:
+            model.train()
+        else:
+            model.eval()
 
         for batched_graph, congestion in pbar:
             pred = model(batched_graph)
-            labels = model.congestion_to_label(congestion)
+            labels = model.prediction_head.congestion_to_label(congestion)
             loss = F.cross_entropy(pred, labels)
             if train:
                 optimizer.zero_grad()
@@ -110,6 +114,10 @@ def train(model_config):
         logger.append_test_loss(test_loss)
         logger.append_test_acc(test_acc)
 
+        # update lr
+        logger.info(f"Learning rate = {scheduler.get_last_lr()}")
+        scheduler.step()
+
     # --------------------- Dump Result -----------------------------# 
 
     logger.dump_model()
@@ -130,7 +138,7 @@ def train(model_config):
 
     for g, cong in congestion_dataloader:
         pred = model(g)
-        pred = model.label_to_congestion(pred.argmax(1).item())
+        pred = model.prediction_head.label_to_congestion(pred.argmax(1).item())
         logger.info(f"Ground Truth = {cong.item()}, Pred = {pred}")
 
 if __name__ == "__main__":

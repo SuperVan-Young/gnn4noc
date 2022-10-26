@@ -30,8 +30,11 @@ class FocusAgent():
                     -fr {flit_size}-{flit_size}-{flit_size} {args}"
 
         begin_time = time.time()
-        sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                shell=True, start_new_session=True)
+        if verbose:
+            sp = subprocess.Popen(command, shell=True, start_new_session=True)
+        else:
+            sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                  shell=True, start_new_session=True)
         try:
             sp.wait(timeout=timeout)
         except subprocess.TimeoutExpired:

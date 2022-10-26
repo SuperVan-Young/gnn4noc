@@ -6,3 +6,6 @@ dataset/tasks
 .vscode/*
 train/log/*
 predict/tmp
+*.png
+dataset/scripts/throughput
+dataset/scripts/tasks
