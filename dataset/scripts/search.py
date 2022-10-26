@@ -5,6 +5,7 @@ import time
 from copy import deepcopy
 import multiprocessing as mp
 import subprocess
+import pandas as pd
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import global_control as gc
@@ -104,7 +105,33 @@ def adjust_mac(num):
 
 #----------------------------- run single task -----------------------------------
 
-def run_single_task(args, timeout=1000, fetch_result=False):
+def predict_latency(taskname, ground_truth=False):
+    # predict latency
+    graph_path = os.path.join(gc.op_graph_root, f"op_graph_{taskname}.gpickle")
+    outlog_path = os.path.join(gc.simulator_root, taskname, "out.log")
+    routing_path = os.path.join(gc.simulator_root, taskname, "routing_board")
+    spec_path = os.path.join(gc.simulator_root, taskname, "spatial_spec")
+
+    trace_parser = TraceParser(graph_path, outlog_path, routing_path, spec_path)
+    predictor = LinearProgrammingPredictor(trace_parser)
+    total_latency = 0
+    for layer_name in trace_parser.graph_parser.get_layers():
+        # total_latency += predictor.predict_latency(layer_name)
+        total_latency += predictor.run(layer_name)
+    
+    print(f"Predicted latency: {total_latency}")
+    ground_truth_latency = None
+
+    if ground_truth:
+        try:
+            ground_truth_latency = trace_parser.outlog_parser.get_total_latency()
+            print(f"Ground truth: {ground_truth_latency}")
+        except:
+            print("Ground truth: failure!")
+    
+    return total_latency, ground_truth_latency
+
+def run_single_task(args, timeout=1000):
     benchmark_path, model_name = generate_benchmark(args)
 
     adjust_mac(args['num_mac'])
@@ -122,45 +149,57 @@ def run_single_task(args, timeout=1000, fetch_result=False):
     out_log_path = os.path.join(gc.simulator_root, taskname, "out.log")
     print(taskname)
 
-    if not fetch_result:
-        if os.path.exists(out_log_path):
-            os.system(f"rm {out_log_path}")
-        # if is_debug:
-        if False:
-            sp = subprocess.Popen(command, shell=True, start_new_session=True)
-        else:
-            sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    shell=True, start_new_session=True)
-
-        for _ in range(timeout):
-            time.sleep(1)
-            if os.path.exists(out_log_path):
-                # predict latency
-                graph_path = os.path.join(gc.op_graph_root, f"op_graph_{taskname}.gpickle")
-                routing_path = os.path.join(gc.simulator_root, taskname, "routing_board")
-                spec_path = os.path.join(gc.simulator_root, taskname, "spatial_spec")
-
-                trace_parser = TraceParser(graph_path, None, routing_path, spec_path)
-                predictor = LinearProgrammingPredictor(trace_parser)
-                total_latency = 0
-                for layer_name in trace_parser.graph_parser.get_layers():
-                    # total_latency += predictor.predict_latency(layer_name)
-                    total_latency += predictor.run(layer_name)
-                
-                print(f"Predicted latency: {total_latency}")
-
-                return True
-
-        print(f"Timeout when running task: {args}")
-        return False
+    if os.path.exists(out_log_path):
+        os.system(f"rm {out_log_path}")
+    # if is_debug:
+    if False:
+        sp = subprocess.Popen(command, shell=True, start_new_session=True)
     else:
-        os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
+        sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                shell=True, start_new_session=True)
 
+    for _ in range(timeout):
+        time.sleep(1)
+        if os.path.exists(out_log_path):
+            predict_latency(taskname)
+            return True
+
+    print(f"Timeout when running task: {args}")
+    return False
+    
+
+def fetch_results():
+    testcases = generate_testcase()
+    columns = ['array_size',
+                "num_mac",
+                "bandwidth",
+                "num_vcs",
+                "vc_buf_size",
+                "pred_latency",
+                "real_latency",]
+    df = pd.DataFrame(columns=columns)
+
+    for args in testcases:
+        benchmark_path, model_name = generate_benchmark(args)
+        array_size = args['array_size']
+        taskname = f"{model_name}_b1w{args['bandwidth']}_{array_size}x{array_size}"
+        out_log_path = os.path.join(gc.simulator_root, taskname, "out.log")
+        print(taskname)
+
+        os.system(f"cp {out_log_path} {os.path.dirname(benchmark_path)}")
+        pred, truth = predict_latency(taskname, True)
+
+        args['pred_latency'] = pred
+        args['real_latency'] = truth
+        df.loc[len(df)] = args
+
+    df.to_csv("search_results.csv")
 
 def run_multiple_task():
     testcases = generate_testcase()
     for cfg in testcases:
-        run_single_task(cfg, fetch_result=False)
+        run_single_task(cfg)
 
 if __name__ == '__main__':
-    run_multiple_task()
+    # run_multiple_task()
+    fetch_results()
