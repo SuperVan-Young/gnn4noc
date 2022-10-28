@@ -9,7 +9,7 @@ class SpecParser():
         self.spec_info = None
 
     def __parse_spec(self):
-        assert os.path.exists(self.spatial_spec_path)
+        assert os.path.exists(self.spatial_spec_path), f"spec path {self.spatial_spec_path} not exists!"
 
         self.spec_info = dict()
         with open(self.spatial_spec_path, "r") as f:

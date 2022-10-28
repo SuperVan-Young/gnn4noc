@@ -1,0 +1,5 @@
+gpt2-xl:
+- gpt2-xl_layer1: 6
+- gpt2-xl_layer2: 2
+- gpt2-xl_layer3: 8
+- gpt2-xl_layer4: 8

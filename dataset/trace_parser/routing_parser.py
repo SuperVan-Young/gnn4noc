@@ -65,7 +65,7 @@ class RoutingParser():
         """Parse routing board for all the multicast packets' routing.
         Returns: {pid -> [one-hop edges]}
         """
-        assert os.path.exists(self.routing_board_path)
+        assert os.path.exists(self.routing_board_path), f"routing_board {self.routing_board_path} not exists!"
 
         pid_to_edges = dict()
         with open(self.routing_board_path, "r") as f:

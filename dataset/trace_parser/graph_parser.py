@@ -29,7 +29,7 @@ class GraphParser():
         return layers
 
     def __parse_graph(self):
-        assert os.path.exists(self.op_graph_path)
+        assert os.path.exists(self.op_graph_path), f"op_graph {self.op_graph_path} not exists!"
 
         self.__op_graph = nx.read_gpickle(self.op_graph_path)
 

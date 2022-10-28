@@ -16,7 +16,7 @@ class OutlogParser():
     def get_total_latency(self):
         """Get latency of overall task
         """
-        assert os.path.exists(self.out_log_path)
+        assert os.path.exists(self.out_log_path), f"out_log {self.out_log_path} not exists!"
 
         line = None
         filesize = os.path.getsize(self.out_log_path)
