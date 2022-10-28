@@ -31,8 +31,6 @@ class WaferConfig():
         self.wafer_mem_bw = kwargs['wafer_mem_bw']
 
         assert self.core_num_mac >= 2, "core_num_mac < 2"
-        assert self.core_array_h == self.core_array_w, "core array h != w"
-        assert self.reticle_array_h == self.core_array_w, "reticle array h != w"
 
     def run_focus(self, benchmark, run_timeloop=True, verbose=False, timeout=300):
         """Run focus for op_graph and routing
@@ -51,7 +49,8 @@ class WaferConfig():
         array_size = self.core_array_h * self.reticle_array_h
         flit_size = self.core_noc_bw
         command = f"python {focus_path} -bm {benchmark_path} -d {array_size} -b 1 \
-                    -fr {flit_size}-{flit_size}-{flit_size} {mode}"
+                    -fr {flit_size}-{flit_size}-{flit_size} {mode}" \
+                    + " -debug" if verbose else ""
     
         begin_time = time.time()
         if verbose:
@@ -76,30 +75,30 @@ class WaferConfig():
             
 
     def _get_config_briefing(self):
-        briefs = {
-            'cm': self.core_num_mac,
-            'cbw': self.core_buffer_bw,
-            'csz': self.core_buffer_size,
-            'nvc': self.core_noc_vc,
-            'nbw': self.core_noc_bw,
-            'nsz': self.core_noc_buffer_size,
-            'nah': self.core_array_h,
-            'naw': self.core_array_w,
-            'rbw': self.reticle_bw,
-            'rah': self.reticle_array_h,
-            'raw': self.reticle_array_w,
-            'wmbw' : self.wafer_mem_bw,
-        }
-        return "_".join({f"{k}-{v}" for k, v in briefs.items()})
+        briefs = [
+            ('cm', self.core_num_mac),
+            ('cbw', self.core_buffer_bw),
+            ('csz', self.core_buffer_size),
+            ('nvc', self.core_noc_vc),
+            ('nbw', self.core_noc_bw),
+            ('nsz', self.core_noc_buffer_size),
+            ('nah', self.core_array_h),
+            ('naw', self.core_array_w),
+            ('rbw', self.reticle_bw),
+            ('rah', self.reticle_array_h),
+            ('raw', self.reticle_array_w),
+            ('wmbw', self.wafer_mem_bw),
+        ]
+        return "_".join([f"{k}{v}" for k, v in briefs])
 
-    def fetch_result(self, task_root):
+    def fetch_results(self, task_root):
         assert os.path.exists(task_root)
         benchmark_path = os.path.join(task_root, f"benchmark.yaml")
         with open(benchmark_path, "r") as f:
             benchmark = yaml.load(f, Loader=yaml.FullLoader)
         array_size = self.core_array_h * self.reticle_array_h
         flit_size = self.core_noc_bw
-        taskname = f"{benchmark.keys()[0]}_b1w{flit_size}_{array_size}x{array_size}"
+        taskname = f"{list(benchmark.keys())[0]}_b1w{flit_size}_{array_size}x{array_size}"
 
         op_graph_path = gc.get_op_graph_path(taskname)
         routing_path = gc.get_routing_path(taskname)
@@ -120,10 +119,10 @@ class WaferConfig():
         benchmark_bu_path = os.path.join(gc.dse_root, "benchmark", f"{benchmark_name}.yaml")
 
         with open(benchmark_bu_path, 'r') as f:
-            benchmark_bu = yaml.load(benchmark_bu_path, Loader=yaml.FullLoader)
+            benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
         assert len(benchmark_bu) == 1, "WaferConfig: Not supporting multi model prediction"
 
-        benchmark = {f"{benchmark_name}_{self._get_config_briefing()}" : benchmark_bu.values[0]} 
+        benchmark = {f"{benchmark_name}_{self._get_config_briefing()}" : benchmark_bu[benchmark_name]} 
         with open(benchmark_path, "w") as f:
             yaml.dump(benchmark, f)
 
@@ -134,14 +133,52 @@ class WaferConfig():
         with open(arch_path, 'r') as f:
             arch_config = yaml.load(f, Loader=yaml.FullLoader)
 
+        mac_datawidth = 16
+        sram_total_depth = self.core_buffer_size * 1024 // mac_datawidth  # assume only one word in a row
+        sram_total_nbanks = self.core_buffer_bw // mac_datawidth  # use nbanks to control bw
+
+        # mac number
         pe_config = arch_config['architecture']['subtree'][0]['subtree'][0]['subtree'][0]['local']
         assert pe_config[-1]['name'] == "LMAC[0..3]"
-        pe_config[-1]['name'] = f"LMAC[0..{self.core_mac_num-1}]"
+        pe_config[-1]['name'] = f"LMAC[0..{self.core_num_mac-1}]"
+        pe_config[-1]['attributes']['datawidth'] = mac_datawidth
         assert pe_config[-2]['name'] == "PEWeightRegs[0..3]"
-        pe_config[-2]['name'] = f"PEWeightRegs[0..{self.core_mac_num-1}]"
+        pe_config[-2]['name'] = f"PEWeightRegs[0..{self.core_num_mac-1}]"
+        pe_config[-2]['attributes']['word-bits'] = mac_datawidth
+
+
+        # buffer allocation:
+        # - global_buffer: 1/2 size & bandwidth
+        # - weight & input buffer : 1/4 size & bandwidth, 1/8 each
+        # - accum buffer: 512B, 16 * mac bit/cycle
+        arch_config['architecture']['subtree'][0]['subtree'][0]['subtree'][0]['name'] = 'PE[0..1]' # stay fanout ...
+        ws_config = arch_config['architecture']['subtree'][0]['subtree'][0]['local']
+
+        assert ws_config[0]['name'] == "GlobalBuffer"
+        ws_config[0]['attributes']['word-bits'] = mac_datawidth
+        ws_config[0]['attributes']['depth'] = sram_total_depth // 2
+        pe_config[2]['attributes']['nbanks'] = sram_total_nbanks // 2
+        pe_config[2]['attributes']['nports'] = 2  # read & write
 
         assert pe_config[0]['name'] == "PEInputBuffer"
-        # FIXME:
+        pe_config[0]['attributes']['word-bits'] = mac_datawidth
+        pe_config[0]['attributes']['depth'] = sram_total_depth // 8
+        pe_config[0]['attributes']['nbanks'] = sram_total_nbanks // 8
+
+        assert pe_config[1]['name'] == "PEWeightBuffer"
+        pe_config[1]['attributes']['word-bits'] = mac_datawidth
+        pe_config[1]['attributes']['depth'] = sram_total_depth // 8
+        pe_config[1]['attributes']['nbanks'] = sram_total_nbanks // 8
+
+        assert pe_config[2]['name'] == "PEAccuBuffer"
+        pe_config[2]['attributes']['word-bits'] = mac_datawidth
+        pe_config[2]['attributes']['depth'] = 512 * 8 // mac_datawidth
+        pe_config[2]['attributes']['nbanks'] = self.core_num_mac
+
+        arch_path = os.path.join(gc.database_root, "arch/cerebras_like.yaml")
+        with open(arch_path, 'w') as f:
+            yaml.dump(arch_config, f)
+
 
     def predict_perf(self, task_root):
         graph_path = os.path.join(task_root, "op_graph.gpickle")
@@ -165,3 +202,23 @@ class WaferConfig():
             json.dump(total_latency, f)
 
         return total_latency
+
+if __name__ == "__main__":
+    wafer_config = WaferConfig(
+        core_num_mac = 16,
+        core_buffer_bw = 256,
+        core_buffer_size = 32,
+
+        core_noc_bw = 1024,
+        core_noc_vc = 4,
+        core_noc_buffer_size = 2,
+        core_array_h = 8,
+        core_array_w = 8,
+
+        reticle_bw = 1024,
+        reticle_array_h = 4, 
+        reticle_array_w = 4,
+
+        wafer_mem_bw = 4096,
+    )
+    wafer_config.run_focus('gpt2-xl_tiny', True, True)
