@@ -14,30 +14,15 @@ class LinearProgrammingPredictor():
     """Linear Programming predictor for single layer.
     """
 
-    def __init__(self, trace_parser:TraceParser) -> None:
+    def __init__(self, trace_parser:TraceParser, noc_spec=None) -> None:
         self.trace_parser = trace_parser
+        self.noc_spec = noc_spec
         self.G = None
         self.flow_cnt = 1  # remember to save for a fake variable
         self.A_ub = []  # list of 1d np.array
         self.b_ub = []  # list of 0d np.array
         self.A_eq = []  # list of 1d np.array
         self.b_eq = []  # list of 0d np.array
-
-    def _get_port(self, s_pe, d_pe):
-        directions = {
-            (0, 1): 'north',
-            (1, 0): 'east',
-            (0, -1): 'south',
-            (-1, 0): 'west',
-        }
-        if d_pe == -2:
-            return 'eject'
-        assert s_pe >= 0
-        assert d_pe >= 0
-        k = self.trace_parser.spec_parser.get_array_size()
-        sx, sy = s_pe // k, s_pe % k
-        dx, dy = d_pe // k, d_pe % k
-        return directions[(dx-sx, dy-sy)]
 
     def _get_credit_stall_factor(self, flit):
         # on the long run, pipeline is withheld by credit
@@ -49,6 +34,7 @@ class LinearProgrammingPredictor():
         return factor
 
     def _get_pipeline_stall_factor(self):
+        # need approximately 2 cycles to acquire vc
         return 2
 
     def _mark_computation_edges(self):
@@ -72,13 +58,7 @@ class LinearProgrammingPredictor():
         G = self.G
         
         k = self.trace_parser.spec_parser.get_array_size()
-        routers = [{
-            "north": [],  # lpid, cnt, delay, flit
-            "south": [],
-            "east": [],
-            "west": [],
-            "eject": [],
-        } for _ in range(k ** 2)]
+        routers = [dict() for _ in range(k ** 2)]
         finished_pkts = set()
 
         for u, v, eattr in G.edges(data=True):
@@ -109,22 +89,25 @@ class LinearProgrammingPredictor():
 
             for s_pe, ds in routing_tree.items():
                 for d_pe in ds:
-                    direction = self._get_port(s_pe, d_pe)
-                    routers[s_pe][direction].append(flow_info)
+                    if d_pe not in routers[s_pe].keys():
+                        routers[s_pe][d_pe] = []
+                    routers[s_pe][d_pe].append(flow_info)
 
         # constraints on all output ports
         # packets from the same flow cannot fully pipeline
         pipeline_stall_factor = self._get_pipeline_stall_factor()
 
-        for out_ports in routers:
-            for direction, flows in out_ports.items():
+        for s_pe, out_ports in enumerate(routers):
+            for d_pe, flows in out_ports.items():
                 if len(flows) == 0: continue
                 A_ub = np.zeros(self.flow_cnt)
                 for flow in flows:
                     credit_stall_factor = self._get_credit_stall_factor(flow['flit'])
                     A_ub[flow['lpid']] += (flow['flit'] + pipeline_stall_factor) * credit_stall_factor
-                self.A_ub.append(A_ub) 
-                self.b_ub.append(np.ones(1))
+                self.A_ub.append(A_ub)
+
+                bw = self.noc_spec.get_relative_bandwidth(s_pe, d_pe) if self.noc_spec else 1
+                self.b_ub.append(np.ones(1) * bw)
 
     def _add_dependency_constraints(self):
         """Output flow's injection rate is limited by input flow.
@@ -144,7 +127,7 @@ class LinearProgrammingPredictor():
                     self.A_ub.append(A_ub)
                     self.b_ub.append(np.zeros(1))
             
-            # between flows
+            # between flows, this is actually optional
             wsrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'wsrc']
             insrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'insrc']
             assert(len(wsrcs) == 1)
@@ -165,12 +148,17 @@ class LinearProgrammingPredictor():
         """
         G = self.G
         
-        for u, _, eattr in G.edges(data=True):
-            if eattr['lpid'] == -1: continue
-            A_ub = np.zeros(self.flow_cnt)
-            A_ub[eattr['lpid']] = G.nodes[u]['delay']
-            self.A_ub.append(A_ub)
-            self.b_ub.append(np.ones(1))
+        for u, nattr in G.nodes(data=True):
+            first_out_pkts = []
+            for _, _, eattr_out in G.out_edges(u, data=True):
+                if eattr_out['lpid'] == -1: continue
+                first_out_pkts.append(eattr_out['pkt'][0])
+            for _, _, eattr_out in G.out_edges(u, data=True):
+                if eattr_out['lpid'] == -1: continue
+                A_ub = np.zeros(self.flow_cnt)
+                A_ub[eattr_out['lpid']] = G.nodes[u]['delay'] + len(first_out_pkts)
+                self.A_ub.append(A_ub)
+                self.b_ub.append(np.ones(1))
 
     def _add_queueing_constraints(self):
         """Previous packet blocks later packet in the same flow.
