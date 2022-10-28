@@ -1,105 +1,88 @@
 import os
-import sys
-from tkinter.tix import Tree
-from matplotlib.pyplot import autoscale
-import numpy as np
-from tqdm import tqdm
-from scipy.optimize import linprog
-import networkx as nx
-sys.path.append("..")
 
-import global_control as gc
-from focus_agent.focus_agent import FocusAgent
-from trace_parser.trace_parser import TraceParser
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dataset.trace_parser.trace_parser import TraceParser
 
 class NoCSpec():
 
-    def __init__(self, trace_parser:TraceParser, inter_core_bw, inter_reticle_bw, core_array_size, reticle_array_size) -> None:
+    def __init__(self, trace_parser:TraceParser, **kwargs) -> None:
         self.trace_parser = trace_parser
 
         # NoC parameters
-        # core -> reticle -> die
-        self.core_array_size = core_array_size
-        self.reticle_array_size = reticle_array_size
+        self.core_array_h = kwargs['core_array_h']
+        self.core_array_w = kwargs['core_array_w']
+        self.reticle_array_h = kwargs['reticle_array_h']
+        self.reticle_array_w = kwargs['reticle_array_w']
 
-        self.bw = {
-            'inter_core': inter_core_bw,  # homogeneous bandwidth on the same level
-            'inter_reticle': inter_reticle_bw
+        # homogeneous bandwidth on the same level
+        # normalize to core bw
+        self.bandwidth = {
+            'inter_core': 1,  
+            'inter_reticle': kwargs['inter_reticle_bw'] // kwargs['inter_core_bw'], 
         }
-
-        self.inter_core_distance = 1  # random
-        self.inter_reticle_distance = 5  # random
+        self.distance = {
+            'inter_core_ew': 1,
+            'inter_core_ns': 1,
+            'inter_reticle_ew': 5,
+            'inter_reticle_ns': 5,
+        } # random distance
 
         # channel information
         self.channel_info = dict()
         self._setup_channel_type()
 
+    def get_relative_bandwidth(self, s_pe, d_pe):
+        if d_pe == -2:
+            return 1  # eject port
+        return self.channel_info[(s_pe, d_pe)]['bw']
+
     def _setup_channel_type(self):
         """Setup lookup table of each channel
         """
-        array_size = self.core_array_size * self.reticle_array_size
-        xy2pe = lambda x, y: x * array_size + y
+        array_w = self.core_array_w * self.reticle_array_w
+        array_h = self.core_array_h * self.reticle_array_h
+        xy2pe = lambda x, y: x * array_w + y  # first w, then h
 
         # inter core channels
-        for i in range(array_size - 1):
-            for j in range(array_size):
+        for i in range(array_w - 1):
+            for j in range(array_h):
                 u_pe = xy2pe(i, j)
                 v_pe = xy2pe(i + 1, j)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
-                    'type': 'inter_core',
-                    'distance': self.inter_core_distance,
+                    'bw': self.bandwidth['inter_core'],
+                    'distance': self.inter_core_distance['inter_core_ew'],
                     'cnt': 0,
                 }
-        for i in range(array_size):
-            for j in range(array_size - 1):
+        for i in range(array_w):
+            for j in range(array_h - 1):
                 u_pe = xy2pe(i, j)
                 v_pe = xy2pe(i, j + 1)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
-                    'type': 'inter_core',
-                    'distance': self.inter_core_distance,
+                    'bw': self.bandwidth['inter_core'],
+                    'distance': self.inter_core_distance['inter_core_ns'],
                     'cnt': 0,
                 }
 
         # inter reticle channels
-        for i in range(self.reticle_size):
-            for j in range(self.core_array_size):
-                u_pe = xy2pe(self.reticle_size * i, j)
-                v_pe = xy2pe(self.reticle_size * i - 1, j)
+        for i in range(1, self.reticle_array_w):
+            for j in range(array_h):
+                u_pe = xy2pe(self.core_array_h * i, j)
+                v_pe = xy2pe(self.core_array_h * i - 1, j)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
-                    'type': 'inter_reticle',
+                    'bw': self.bandwidth['inter_reticle'],
+                    'distance': self.inter_reticle_distance['inter_reticle_ew'],
                     'cnt': 0,
-                    'distance': self.inter_reticle_distance,
                 }
-        for i in range(self.core_array_size):
-            for j in range(1, self.core_array_size // self.reticle_size):
+        for i in range(array_w):
+            for j in range(1, self.reticle_array_h):
                 u_pe = xy2pe(i, self.reticle_size * j)
                 v_pe = xy2pe(i, self.reticle_size * j - 1)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
-                    'type': 'inter_reticle',
+                    'bw': self.bandwidth['inter_reticle'],
+                    'distance': self.inter_reticle_distance['inter_reticle_ns'],
                     'cnt': 0,
-                    'distance': self.inter_reticle_distance,
                 }
-        
-        # inter die channels (cover inter reticle channels, optional)
-        if self.die_size is not None:
-            for i in range(1, self.core_array_size // self.die_size):
-                for j in range(self.core_array_size):
-                    u_pe = xy2pe(self.die_size * i, j)
-                    v_pe = xy2pe(self.die_size * i - 1, j)
-                    self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
-                        'type': 'inter_die',
-                        'cnt': 0,
-                        'distance': self.inter_die_distance,
-                    }
-            for i in range(self.core_array_size):
-                for j in range(1, self.core_array_size // self.die_size):
-                    u_pe = xy2pe(i, self.die_size * j)
-                    v_pe = xy2pe(i, self.die_size * j - 1)
-                    self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
-                        'type': 'inter_die',
-                        'cnt': 0,
-                        'distance': self.inter_die_distance,
-                    }
 
     def _calculate_action_power(self, chan_info):
         """Given info of a channel, calculate the power consumption of one transfer
@@ -108,7 +91,7 @@ class NoCSpec():
         return chan_info['distance'] * chan_info['cnt']
 
     def run(self, layer_name=None):
-        G = self.G = self.trace_parser.graph_parser.get_graph(layer_name, batch=0)
+        G = self.trace_parser.graph_parser.get_graph(layer_name, batch=0)
         
         finished_pkts = set()
         for u, v, eattr in G.edges(data=True):
@@ -121,29 +104,13 @@ class NoCSpec():
 
             hops = self.trace_parser.routing_parser.get_routing_hops(u_pe, v_pe, pid)
             for hop in hops:
-                self.channel_info[hop]['cnt'] += 1
+                self.channel_info[hop]['cnt'] += eattr['cnt']
 
         total_power = 0
         for k, v in self.channel_info.items():
             total_power += self._calculate_action_power(v)
         return total_power
 
-
-def test_example():
-    agent = FocusAgent(fake_trace=True, simulate=True)
-    taskname ="cw64_ci64_co64_bw0_bi1_fw2_fi7_fo12_dw1_di1_do1_n8" + f"_b1w1024_8x8"
-    trace_parser = TraceParser(
-        agent.get_op_graph_path(taskname),
-        agent.get_outlog_path(taskname),
-        agent.get_routing_path(taskname),
-        agent.get_spec_path(taskname),
-    )
-
-    # predictor = NoCPowerPredictor(trace_parser, reticle_size=8, die_size=None)
-    result = predictor.run()
-    print(result)
-
-
 if __name__ == '__main__':
-    test_example()
+    pass
     

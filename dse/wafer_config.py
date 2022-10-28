@@ -4,6 +4,7 @@ import subprocess
 import signal
 import yaml
 import json
+from noc_spec import NoCSpec
 import dse_global_control as gc
 
 import sys
@@ -192,7 +193,17 @@ class WaferConfig():
             spec_path=spec_path
         )
 
-        predictor = LinearProgrammingPredictor(trace_parser)
+        noc_spec = NoCSpec(
+            trace_parser=trace_parser,
+            core_array_h=self.core_array_h,
+            core_array_w=self.core_array_w,
+            reticle_array_h=self.reticle_array_h,
+            reticle_array_w=self.reticle_array_w,
+            inter_reticle_bw=self.reticle_bw,
+            inter_core_bw=self.core_noc_bw,
+        )
+
+        predictor = LinearProgrammingPredictor(trace_parser, noc_spec)
         total_latency = 0
         for layer_name in trace_parser.graph_parser.get_layers():
             total_latency += predictor.run(layer_name)
