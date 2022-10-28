@@ -128,20 +128,20 @@ class LinearProgrammingPredictor():
                     self.b_ub.append(np.zeros(1))
             
             # between flows, this is actually optional
-            wsrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'wsrc']
-            insrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'insrc']
-            assert(len(wsrcs) == 1)
-            assert(len(insrcs) == 1)
-            wsrc = wsrcs[0]
-            insrc = insrcs[0]
-            flow_w = G.edges[wsrc, u]['lpid']
-            flow_i = G.edges[insrc, u]['lpid']
-            A_eq = np.zeros(self.flow_cnt)
-            A_eq[flow_w] = G.nodes[wsrc]['delay']
-            A_eq[flow_i] = -G.nodes[insrc]['delay']
-            b_eq = np.zeros(1)
-            self.A_eq.append(A_eq)
-            self.b_eq.append(b_eq)
+            # wsrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'wsrc']
+            # insrcs = [src for src, _ in G.in_edges(u) if G.nodes[src]['op_type'] == 'insrc']
+            # assert(len(wsrcs) == 1)
+            # assert(len(insrcs) == 1)
+            # wsrc = wsrcs[0]
+            # insrc = insrcs[0]
+            # flow_w = G.edges[wsrc, u]['lpid']
+            # flow_i = G.edges[insrc, u]['lpid']
+            # A_eq = np.zeros(self.flow_cnt)
+            # A_eq[flow_w] = G.nodes[wsrc]['delay']
+            # A_eq[flow_i] = -G.nodes[insrc]['delay']
+            # b_eq = np.zeros(1)
+            # self.A_eq.append(A_eq)
+            # self.b_eq.append(b_eq)
 
     def _add_source_constraints(self):
         """Flow's injection rate is no more than production rate
@@ -149,10 +149,10 @@ class LinearProgrammingPredictor():
         G = self.G
         
         for u, nattr in G.nodes(data=True):
-            first_out_pkts = []
+            first_out_pkts = set()
             for _, _, eattr_out in G.out_edges(u, data=True):
                 if eattr_out['lpid'] == -1: continue
-                first_out_pkts.append(eattr_out['pkt'][0])
+                first_out_pkts.add(eattr_out['pkt'][0])
             for _, _, eattr_out in G.out_edges(u, data=True):
                 if eattr_out['lpid'] == -1: continue
                 A_ub = np.zeros(self.flow_cnt)
@@ -166,6 +166,13 @@ class LinearProgrammingPredictor():
         G = self.G
         # add interval in the same flow
         lpid_to_interval = {i: 0 for i in range(1, self.flow_cnt)}
+        lpid_pkts = {i: [] for i in range(1, self.flow_cnt)}
+
+        k = self.trace_parser.spec_parser.get_array_size()
+        def get_num_hops(s_pe, d_pe):
+            sx, sy = s_pe // k, s_pe % k
+            dx, dy = d_pe // k, d_pe % k
+            return abs(sx-dx) + abs(sy-dy)
 
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != 'data' or len(eattr['pkt']) == 0:
@@ -174,17 +181,18 @@ class LinearProgrammingPredictor():
 
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
             pid = eattr['pkt'][0]
-            num_hops = len(self.trace_parser.routing_parser.get_routing_hops(u_pe, v_pe, pid))
+            num_hops = get_num_hops(u_pe, v_pe)
             
             # solve a simple chasing problem, and get this...
             credit_stall_factor = self._get_credit_stall_factor(eattr['size'])
             packet_interval = min(num_hops, eattr['size']) * (1 - credit_stall_factor / 4)
-            if self.trace_parser.routing_parser.is_multicast_packet(pid):
-                lpid_to_interval[lpid] = packet_interval + eattr['size'] * credit_stall_factor
-            else:
-                lpid_to_interval[lpid] += packet_interval + eattr['size'] * credit_stall_factor
+            lpid_to_interval[lpid] += packet_interval + eattr['size'] * credit_stall_factor
+            lpid_pkts[lpid].append(pid)
 
         for lpid, interval in lpid_to_interval.items():
+            pid = lpid_pkts[lpid][0]
+            if self.trace_parser.routing_parser.is_multicast_packet(pid):
+                interval /= len(lpid_pkts[lpid])
             A_ub = np.zeros(self.flow_cnt)
             A_ub[lpid] = 1
             self.A_ub.append(A_ub)
@@ -224,8 +232,8 @@ class LinearProgrammingPredictor():
         c[0] = -1
         A_ub = np.stack(self.A_ub)
         b_ub = np.stack(self.b_ub)
-        A_eq = np.stack(self.A_eq)
-        b_eq = np.stack(self.b_eq)
+        A_eq = np.stack(self.A_eq) if self.A_eq != [] else None
+        b_eq = np.stack(self.b_eq) if self.b_eq != [] else None
         bounds = [(0, None) for _ in range(self.flow_cnt)]
         result = linprog(c=c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
 
