@@ -51,7 +51,7 @@ class NoCSpec():
                 v_pe = xy2pe(i + 1, j)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
                     'bw': self.bandwidth['inter_core'],
-                    'distance': self.inter_core_distance['inter_core_ew'],
+                    'distance': self.distance['inter_core_ew'],
                     'cnt': 0,
                 }
         for i in range(array_w):
@@ -60,7 +60,7 @@ class NoCSpec():
                 v_pe = xy2pe(i, j + 1)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
                     'bw': self.bandwidth['inter_core'],
-                    'distance': self.inter_core_distance['inter_core_ns'],
+                    'distance': self.distance['inter_core_ns'],
                     'cnt': 0,
                 }
 
@@ -71,7 +71,7 @@ class NoCSpec():
                 v_pe = xy2pe(self.core_array_h * i - 1, j)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
                     'bw': self.bandwidth['inter_reticle'],
-                    'distance': self.inter_reticle_distance['inter_reticle_ew'],
+                    'distance': self.distance['inter_reticle_ew'],
                     'cnt': 0,
                 }
         for i in range(array_w):
@@ -80,7 +80,7 @@ class NoCSpec():
                 v_pe = xy2pe(i, self.reticle_size * j - 1)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
                     'bw': self.bandwidth['inter_reticle'],
-                    'distance': self.inter_reticle_distance['inter_reticle_ns'],
+                    'distance': self.distance['inter_reticle_ns'],
                     'cnt': 0,
                 }
 

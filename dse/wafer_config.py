@@ -47,11 +47,12 @@ class WaferConfig():
 
         focus_path = os.path.join(gc.focus_root, "focus.py")
         mode = "ted" if run_timeloop else "d"
-        array_size = self.core_array_h * self.reticle_array_h
+        # array_size = max(self.core_array_h * self.reticle_array_h, self.core_array_w * self.reticle_array_w)
+        array_size = max(self.core_array_h, self.core_array_w) * 2
         flit_size = self.core_noc_bw
         command = f"python {focus_path} -bm {benchmark_path} -d {array_size} -b 1 \
                     -fr {flit_size}-{flit_size}-{flit_size} {mode}" \
-                    + " -debug" if verbose else ""
+                    # + " -debug" if verbose else ""
     
         begin_time = time.time()
         if verbose:
@@ -72,7 +73,8 @@ class WaferConfig():
             print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
         
         self.fetch_results(task_root)
-        self.predict_perf(task_root)
+        perf = self.predict_perf(task_root)
+        return perf
             
 
     def _get_config_briefing(self):
@@ -97,7 +99,7 @@ class WaferConfig():
         benchmark_path = os.path.join(task_root, f"benchmark.yaml")
         with open(benchmark_path, "r") as f:
             benchmark = yaml.load(f, Loader=yaml.FullLoader)
-        array_size = self.core_array_h * self.reticle_array_h
+        array_size = max(self.core_array_h, self.core_array_w) * 2
         flit_size = self.core_noc_bw
         taskname = f"{list(benchmark.keys())[0]}_b1w{flit_size}_{array_size}x{array_size}"
 
@@ -193,12 +195,17 @@ class WaferConfig():
             spec_path=spec_path
         )
 
+        core_array_size = max(self.core_array_h, self.core_array_w)
         noc_spec = NoCSpec(
             trace_parser=trace_parser,
-            core_array_h=self.core_array_h,
-            core_array_w=self.core_array_w,
-            reticle_array_h=self.reticle_array_h,
-            reticle_array_w=self.reticle_array_w,
+            # core_array_h=self.core_array_h,
+            core_array_h=core_array_size,
+            # core_array_w=self.core_array_w,
+            core_array_w=core_array_size,
+            reticle_array_h=8,
+            # reticle_array_h=self.reticle_array_h,
+            reticle_array_w=8,
+            # reticle_array_w=self.reticle_array_w,
             inter_reticle_bw=self.reticle_bw,
             inter_core_bw=self.core_noc_bw,
         )
