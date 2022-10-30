@@ -86,6 +86,10 @@ class ResultAnalyzer():
             cur_perfs = [perfs[c] for c in cur_cluster]
             if agg == 'min':
                 cur_agg_perf = np.min(cur_perfs)
+            elif agg == 'max':
+                cur_agg_perf = np.max(cur_perfs)
+            elif agg == 'mean':
+                cur_agg_perf = np.mean(cur_perfs)
             else:
                 raise RuntimeError(f"Invalid agg {agg}")
             index_to_agg_perf[index] = cur_agg_perf
@@ -94,11 +98,17 @@ class ResultAnalyzer():
         if dim == 1:
             x = list(index_to_agg_perf.keys())
             y = list(index_to_agg_perf.values())
-            plt.plot(x, y)
-            fig_path = benchmark + "_" + "_".join(cluster_columns)
-            fig_path += "_" + "_".join([f"{k}{v}" for k, v in fixed_columns])
-            fig_path += f"_agg_{agg}.png"
-            fig_path = os.path.join(gc.dse_root, "figs", fig_path)
+
+            plt.plot(x, y, marker='x')
+            plt.xlabel(cluster_columns[0])
+            plt.ylabel('total latency')
+
+            fig_title = benchmark + "_" + "_".join(cluster_columns)
+            fig_title += "_" + "_".join([f"{k}{v}" for k, v in fixed_columns])
+            fig_title += f"_agg_{agg}"
+            plt.title(fig_title)
+
+            fig_path = os.path.join(gc.dse_root, "figs", f"{fig_title}.png")
 
             plt.savefig(fig_path)
             plt.clf()
@@ -118,6 +128,9 @@ if __name__ == "__main__":
             design_points.append(tuple(l))
 
     analyzer = ResultAnalyzer(design_points)
-    cluster_columns = ["core_num_mac"]
+ 
+    cluster_columns = ["core_noc_buffer_size"]
     fixed_columns = dict()
-    analyzer.plot_cluster(cluster_columns, fixed_columns)
+    analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min')
+    analyzer.plot_cluster(cluster_columns, fixed_columns, agg='max')
+    analyzer.plot_cluster(cluster_columns, fixed_columns, agg='mean')
