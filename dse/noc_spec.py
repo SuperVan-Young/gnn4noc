@@ -76,8 +76,8 @@ class NoCSpec():
                 }
         for i in range(array_w):
             for j in range(1, self.reticle_array_h):
-                u_pe = xy2pe(i, self.reticle_size * j)
-                v_pe = xy2pe(i, self.reticle_size * j - 1)
+                u_pe = xy2pe(i, self.reticle_array_w * j)
+                v_pe = xy2pe(i, self.reticle_array_w * j - 1)
                 self.channel_info[(u_pe, v_pe)] = self.channel_info[(v_pe, u_pe)] = {
                     'bw': self.bandwidth['inter_reticle'],
                     'distance': self.distance['inter_reticle_ns'],

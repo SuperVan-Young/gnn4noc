@@ -3,3 +3,15 @@ gpt2-xl_tiny:
 - gpt2-xl_layer2: 32
 - gpt2-xl_layer3: 128
 - gpt2-xl_layer4: 128
+- gpt2-xl_layer5: 96
+- gpt2-xl_layer6: 32
+- gpt2-xl_layer7: 128
+- gpt2-xl_layer8: 128
+# - gpt2-xl_layer9: 96
+# - gpt2-xl_layer10: 32
+# - gpt2-xl_layer11: 128
+# - gpt2-xl_layer12: 128
+# - gpt2-xl_layer13: 96
+# - gpt2-xl_layer14: 32
+# - gpt2-xl_layer15: 128
+# - gpt2-xl_layer16: 128

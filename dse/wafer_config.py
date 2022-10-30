@@ -12,6 +12,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset.trace_parser.trace_parser import TraceParser
 from dataset.predictor.lp_predictor import LinearProgrammingPredictor
 
+reticle_array_adjust = 1
+
 class WaferConfig():
     
     def __init__(self, **kwargs) -> None:
@@ -33,7 +35,7 @@ class WaferConfig():
 
         assert self.core_num_mac >= 2, "core_num_mac < 2"
 
-    def run_focus(self, benchmark, run_timeloop=True, verbose=False, timeout=300):
+    def run_focus(self, benchmark, run_timeloop=True, verbose=False, timeout=600):
         """Run focus for op_graph and routing
         """
         task_root = os.path.join(gc.dse_root, "tasks", f"{benchmark}_{self._get_config_briefing()}")
@@ -48,7 +50,7 @@ class WaferConfig():
         focus_path = os.path.join(gc.focus_root, "focus.py")
         mode = "ted" if run_timeloop else "d"
         # array_size = max(self.core_array_h * self.reticle_array_h, self.core_array_w * self.reticle_array_w)
-        array_size = max(self.core_array_h, self.core_array_w) * 2
+        array_size = max(self.core_array_h, self.core_array_w) * reticle_array_adjust
         flit_size = self.core_noc_bw
         command = f"python {focus_path} -bm {benchmark_path} -d {array_size} -b 1 \
                     -fr {flit_size}-{flit_size}-{flit_size} {mode}" \
@@ -99,7 +101,7 @@ class WaferConfig():
         benchmark_path = os.path.join(task_root, f"benchmark.yaml")
         with open(benchmark_path, "r") as f:
             benchmark = yaml.load(f, Loader=yaml.FullLoader)
-        array_size = max(self.core_array_h, self.core_array_w) * 2
+        array_size = max(self.core_array_h, self.core_array_w) * reticle_array_adjust
         flit_size = self.core_noc_bw
         taskname = f"{list(benchmark.keys())[0]}_b1w{flit_size}_{array_size}x{array_size}"
 
@@ -202,9 +204,9 @@ class WaferConfig():
             core_array_h=core_array_size,
             # core_array_w=self.core_array_w,
             core_array_w=core_array_size,
-            reticle_array_h=8,
+            reticle_array_h=reticle_array_adjust,
             # reticle_array_h=self.reticle_array_h,
-            reticle_array_w=8,
+            reticle_array_w=reticle_array_adjust,
             # reticle_array_w=self.reticle_array_w,
             inter_reticle_bw=self.reticle_bw,
             inter_core_bw=self.core_noc_bw,

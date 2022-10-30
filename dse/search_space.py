@@ -20,7 +20,13 @@ def run_single_design_point(design_point, run_timeloop=False):
         reticle_array_w = reticle_array_w, 
         wafer_mem_bw = wafer_mem_bw, 
     )
-    config.run_focus('gpt2-xl_tiny', run_timeloop=run_timeloop, verbose=True)
+    try:
+        config.run_focus('gpt2-xl_tiny', run_timeloop=run_timeloop, verbose=False)
+    except:
+        print(f"Error: {design_point}")
+        return
+    print(f"Success: {design_point}")
+    
 
 class WaferSearchSpace():
 
@@ -44,8 +50,9 @@ class WaferSearchSpace():
         for key, cluster in self.design_point_cluster.items():
             # warm up
             warm_up = cluster[0]
+            print(f"Warm up: {cluster[0]}")
             run_single_design_point(warm_up, run_timeloop=True)
-            with Pool(processes=8) as pool:
+            with Pool(processes=16) as pool:
                 pool.map(run_single_design_point, cluster)
             
             print(f"Search space: cluster {key} complete!")
