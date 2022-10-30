@@ -1,9 +1,12 @@
+from math import log
 import os
 import time
 import subprocess
 import signal
 import yaml
 import json
+import numpy as np
+
 from noc_spec import NoCSpec
 import dse_global_control as gc
 
@@ -13,6 +16,31 @@ from dataset.trace_parser.trace_parser import TraceParser
 from dataset.predictor.lp_predictor import LinearProgrammingPredictor
 
 reticle_array_adjust = 1
+
+def run_focus(benchmark_path, array_size, flit_size, mode, verbose=False, timeout=600):
+    focus_path = os.path.join(gc.focus_root, "focus.py")
+
+    command = f"python {focus_path} -bm {benchmark_path} -d {array_size} -b 1 \
+                -fr {flit_size}-{flit_size}-{flit_size} {mode}" \
+                # + " -debug" if verbose else ""
+
+    begin_time = time.time()
+    if verbose:
+        sp = subprocess.Popen(command, shell=True, start_new_session=True)
+    else:
+        sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            shell=True, start_new_session=True)
+    try:
+        sp.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if verbose:
+            print("Warning: running FOCUS timeout.")
+        os.killpg(os.getpgid(sp.pid), signal.SIGTERM)
+        sp.wait()
+
+    end_time = time.time()
+    if verbose:
+        print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
 
 class WaferConfig():
     
@@ -38,46 +66,37 @@ class WaferConfig():
     def run_focus(self, benchmark, run_timeloop=True, verbose=False, timeout=600):
         """Run focus for op_graph and routing
         """
-        task_root = os.path.join(gc.dse_root, "tasks", f"{benchmark}_{self._get_config_briefing()}")
+        task_root = os.path.join(gc.task_root, f"{benchmark}_{self._get_config_briefing()}")
         if not os.path.exists(task_root):
             os.mkdir(task_root)
+            os.mkdir(os.path.join(task_root, "benchmark"))
+            os.mkdir(os.path.join(task_root, "prediction"))
 
-        benchmark_path = self._dump_benchmark(task_root, benchmark)
+        # dump all benchmarks to task_root/benchmark/xxx.yaml
+        benchmark_names = self._dump_benchmark(task_root, benchmark)
 
         if run_timeloop:
             self._dump_arch_config()
 
-        focus_path = os.path.join(gc.focus_root, "focus.py")
         mode = "ted" if run_timeloop else "d"
         # array_size = max(self.core_array_h * self.reticle_array_h, self.core_array_w * self.reticle_array_w)
         array_size = max(self.core_array_h, self.core_array_w) * reticle_array_adjust
         flit_size = self.core_noc_bw
-        command = f"python {focus_path} -bm {benchmark_path} -d {array_size} -b 1 \
-                    -fr {flit_size}-{flit_size}-{flit_size} {mode}" \
-                    # + " -debug" if verbose else ""
-    
-        begin_time = time.time()
-        if verbose:
-            sp = subprocess.Popen(command, shell=True, start_new_session=True)
-        else:
-            sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                  shell=True, start_new_session=True)
-        try:
-            sp.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            if verbose:
-                print("Warning: running FOCUS timeout.")
-            os.killpg(os.getpgid(sp.pid), signal.SIGTERM)
-            sp.wait()
 
-        end_time = time.time()
-        if verbose:
-            print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
+        for root, __, files in os.walk(os.path.join(task_root, 'benchmark')):
+            for file in files:
+                benchmark_path = os.path.join(root, file)
+                run_focus(benchmark_path, array_size, flit_size, mode, verbose, timeout)
+            break
         
-        self.fetch_results(task_root)
-        perf = self.predict_perf(task_root)
-        return perf
-            
+        for benchmark_name in benchmark_names:
+            try:
+                self.predict_perf(task_root, benchmark_name)
+            except:
+                print(f"Error in predicting perf")
+                continue
+
+
 
     def _get_config_briefing(self):
         briefs = [
@@ -96,42 +115,51 @@ class WaferConfig():
         ]
         return "_".join([f"{k}{v}" for k, v in briefs])
 
-    def fetch_results(self, task_root):
-        assert os.path.exists(task_root)
-        benchmark_path = os.path.join(task_root, f"benchmark.yaml")
-        with open(benchmark_path, "r") as f:
-            benchmark = yaml.load(f, Loader=yaml.FullLoader)
-        array_size = max(self.core_array_h, self.core_array_w) * reticle_array_adjust
-        flit_size = self.core_noc_bw
-        taskname = f"{list(benchmark.keys())[0]}_b1w{flit_size}_{array_size}x{array_size}"
-
-        op_graph_path = gc.get_op_graph_path(taskname)
-        routing_path = gc.get_routing_path(taskname)
-        spec_path = gc.get_spec_path(taskname)
-
-        assert op_graph_path != None
-        assert routing_path != None
-        assert spec_path != None
-
-        os.system(f"cp {op_graph_path} {task_root}/op_graph.gpickle")
-        os.system(f"cp {routing_path} {task_root}")
-        os.system(f"cp {spec_path} {task_root}")
-
     def _dump_benchmark(self, task_root, benchmark_name):
-        """Add suffix to the each model in benchmark config, return current benchmark path
+        """Add suffix to the each model in benchmark config
+        None of them will overlap with others results
         """
-        benchmark_path = os.path.join(task_root, f"benchmark.yaml")
         benchmark_bu_path = os.path.join(gc.dse_root, "benchmark", f"{benchmark_name}.yaml")
 
         with open(benchmark_bu_path, 'r') as f:
             benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
         assert len(benchmark_bu) == 1, "WaferConfig: Not supporting multi model prediction"
 
-        benchmark = {f"{benchmark_name}_{self._get_config_briefing()}" : benchmark_bu[benchmark_name]} 
-        with open(benchmark_path, "w") as f:
-            yaml.dump(benchmark, f)
+        new_benchmark_names = []
 
-        return benchmark_path
+        for factor in self._get_layer_scaling_factor(benchmark_name):
+
+            benchmark_path = os.path.join(task_root, "benchmark", f"{benchmark_name}_cf{factor}.yaml")
+            new_benchmark = [{list(l.keys())[0]: list(l.values())[0] * factor} for l in benchmark_bu[benchmark_name]]
+
+            new_benchmark_name = f"{benchmark_name}_cf{factor}_{self._get_config_briefing()}"
+            benchmark = {new_benchmark_name : new_benchmark} 
+            with open(benchmark_path, "w") as f:
+                yaml.dump(benchmark, f)
+
+            new_benchmark_names.append(new_benchmark_name)
+        
+        return new_benchmark_names  # return for convenience
+
+    def _get_layer_scaling_factor(self, benchmark_name):
+        benchmark_bu_path = os.path.join(gc.dse_root, "benchmark", f"{benchmark_name}.yaml")
+
+        with open(benchmark_bu_path, 'r') as f:
+            benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
+        assert len(benchmark_bu) == 1, "WaferConfig: Not supporting multi model prediction"
+
+        reticle_core_num = self.core_array_h * self.core_array_w
+        max_factor = reticle_core_num // np.sum([list(l.values())[0] for l in benchmark_bu[benchmark_name]])
+        log_max_factor = int(log(max_factor, 2))
+        factors = 2 ** np.arange(0, log_max_factor, log_max_factor / 4)
+        
+        for factor in factors:
+            if factor > 4:
+                factor = int(factor // 4 * 4)
+            else:
+                factor = int(factor)
+
+        return set(factors)
 
     def _dump_arch_config(self):
         arch_path = os.path.join(gc.database_root, "arch_bu/cerebras_like.yaml")
@@ -162,18 +190,18 @@ class WaferConfig():
         assert ws_config[0]['name'] == "GlobalBuffer"
         ws_config[0]['attributes']['word-bits'] = mac_datawidth
         ws_config[0]['attributes']['depth'] = sram_total_depth // 2
-        pe_config[2]['attributes']['nbanks'] = sram_total_nbanks // 2
+        pe_config[2]['attributes']['nbanks'] = sram_total_nbanks
         pe_config[2]['attributes']['nports'] = 2  # read & write
 
         assert pe_config[0]['name'] == "PEInputBuffer"
         pe_config[0]['attributes']['word-bits'] = mac_datawidth
-        pe_config[0]['attributes']['depth'] = sram_total_depth // 8
-        pe_config[0]['attributes']['nbanks'] = sram_total_nbanks // 8
+        pe_config[0]['attributes']['depth'] = sram_total_depth // 4
+        pe_config[0]['attributes']['nbanks'] = sram_total_nbanks // 4
 
         assert pe_config[1]['name'] == "PEWeightBuffer"
         pe_config[1]['attributes']['word-bits'] = mac_datawidth
-        pe_config[1]['attributes']['depth'] = sram_total_depth // 8
-        pe_config[1]['attributes']['nbanks'] = sram_total_nbanks // 8
+        pe_config[1]['attributes']['depth'] = sram_total_depth // 4
+        pe_config[1]['attributes']['nbanks'] = sram_total_nbanks // 4
 
         assert pe_config[2]['name'] == "PEAccuBuffer"
         pe_config[2]['attributes']['word-bits'] = mac_datawidth
@@ -184,12 +212,19 @@ class WaferConfig():
         with open(arch_path, 'w') as f:
             yaml.dump(arch_config, f)
 
+    def predict_perf(self, task_root, benchmark_name):
+        array_size = max(self.core_array_h, self.core_array_w) * reticle_array_adjust
+        flit_size = self.core_noc_bw
+        taskname = f"{benchmark_name}_b1w{flit_size}_{array_size}x{array_size}"
 
-    def predict_perf(self, task_root):
-        graph_path = os.path.join(task_root, "op_graph.gpickle")
-        routing_path = os.path.join(task_root, "routing_board")
-        spec_path = os.path.join(task_root, "spatial_spec")
-        
+        graph_path = gc.get_op_graph_path(taskname)
+        routing_path = gc.get_routing_path(taskname)
+        spec_path = gc.get_spec_path(taskname)
+
+        assert graph_path != None
+        assert routing_path != None
+        assert spec_path != None
+
         trace_parser = TraceParser(
             graph_path=graph_path,
             outlog_path=None,
@@ -197,6 +232,7 @@ class WaferConfig():
             spec_path=spec_path
         )
 
+        # assume that we could put a model inside a reticle
         core_array_size = max(self.core_array_h, self.core_array_w)
         noc_spec = NoCSpec(
             trace_parser=trace_parser,
@@ -213,15 +249,13 @@ class WaferConfig():
         )
 
         predictor = LinearProgrammingPredictor(trace_parser, noc_spec)
-        total_latency = 0
+        latencies = dict()
         for layer_name in trace_parser.graph_parser.get_layers():
-            total_latency += predictor.run(layer_name)
+            latencies[layer_name] = int(predictor.run(layer_name))
 
-        prediction_path = os.path.join(task_root, "prediction.json")
+        prediction_path = os.path.join(task_root, "prediction", f"{benchmark_name}.json")
         with open(prediction_path, "w") as f:
-            json.dump(total_latency, f)
-
-        return total_latency
+            json.dump(latencies, f)
 
 if __name__ == "__main__":
     wafer_config = WaferConfig(
@@ -232,8 +266,8 @@ if __name__ == "__main__":
         core_noc_bw = 1024,
         core_noc_vc = 4,
         core_noc_buffer_size = 2,
-        core_array_h = 8,
-        core_array_w = 8,
+        core_array_h = 50,
+        core_array_w = 50,
 
         reticle_bw = 1024,
         reticle_array_h = 4, 
@@ -242,3 +276,4 @@ if __name__ == "__main__":
         wafer_mem_bw = 4096,
     )
     wafer_config.run_focus('gpt2-xl_tiny', True, True)
+    # wafer_config.predict_perf("/home/xuechenhao/gnn4noc/dse/tasks1030/gpt2-xl_tiny_cm16_cbw256_csz32_nvc4_nbw1024_nsz2_nah50_naw50_rbw1024_rah4_raw4_wmbw4096", "gpt2-xl_tiny_cf1_cm16_cbw256_csz32_nvc4_nbw1024_nsz2_nah50_naw50_rbw1024_rah4_raw4_wmbw4096")

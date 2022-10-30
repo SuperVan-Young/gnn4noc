@@ -2,6 +2,9 @@ import os
 from wafer_config import WaferConfig
 from multiprocessing import Pool
 import json
+import yaml
+import dse_global_control as gc
+from wafer_config import run_focus
 
 def run_single_design_point(design_point, run_timeloop=False):
     design_point = [int(s) for s in design_point]
@@ -26,7 +29,45 @@ def run_single_design_point(design_point, run_timeloop=False):
         print(f"Error: {design_point}")
         return
     print(f"Success: {design_point}")
-    
+
+def warm_up(cluster):
+    """Gather all layer scaling factors that need to run timeloop
+    All handwritten, really ugly, but save time!
+    """
+    benchmark_name = 'gpt2-xl_tiny'
+    scaling_factors = set()
+
+    for dp in cluster:
+        dp = [int(s) for s in dp]
+        core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = design_point
+        config = WaferConfig(
+            core_num_mac = core_num_mac, 
+            core_buffer_bw = core_buffer_bw, 
+            core_buffer_size = core_buffer_size, 
+            core_noc_bw = core_noc_bw, 
+            core_noc_vc = core_noc_vc, 
+            core_noc_buffer_size = core_noc_buffer_size, 
+            core_array_h = core_array_h, 
+            core_array_w = core_array_w, 
+            reticle_bw = reticle_bw, 
+            reticle_array_h = reticle_array_h, 
+            reticle_array_w = reticle_array_w, 
+            wafer_mem_bw = wafer_mem_bw, 
+        )
+        scaling_factors = scaling_factors.union(config._get_layer_scaling_factor(benchmark_name))
+
+    benchmark_bu_path = os.path.join(gc.dse_root, "benchmark", f"{benchmark_name}.yaml")
+    with open(benchmark_bu_path, 'r') as f:
+            benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
+    benchmark_tmp_path = os.path.join(gc.dse_root, "tmp_benchmark.yaml")
+
+    for factor in scaling_factors:
+        tmp_benchmark = [{list(l.keys())[0]: list(l.values())[0] * factor} for l in benchmark_bu[benchmark_name]]
+        tmp_benchmark = {'tmp-model': tmp_benchmark}
+        with open(benchmark_tmp_path, 'w') as f:
+            yaml.dump(benchmark_tmp_path, f)
+
+        run_focus(benchmark_tmp_path, 8, 1024, 'ted')
 
 class WaferSearchSpace():
 
@@ -48,9 +89,9 @@ class WaferSearchSpace():
         print(f"number of clusters: {len(self.design_point_cluster)}")
 
         for key, cluster in self.design_point_cluster.items():
-            # warm up
-            warm_up = cluster[0]
-            print(f"Warm up: {cluster[0]}")
+            print(f"Warm up: {key}")
+            warm_up(cluster)
+
             run_single_design_point(warm_up, run_timeloop=True)
             with Pool(processes=16) as pool:
                 pool.map(run_single_design_point, cluster)
