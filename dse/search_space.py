@@ -39,7 +39,7 @@ def warm_up(cluster):
 
     for dp in cluster:
         dp = [int(s) for s in dp]
-        core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = design_point
+        core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = dp
         config = WaferConfig(
             core_num_mac = core_num_mac, 
             core_buffer_bw = core_buffer_bw, 
@@ -56,18 +56,20 @@ def warm_up(cluster):
         )
         scaling_factors = scaling_factors.union(config._get_layer_scaling_factor(benchmark_name))
 
+    print(f"scaling factors: {scaling_factors}")
+
     benchmark_bu_path = os.path.join(gc.dse_root, "benchmark", f"{benchmark_name}.yaml")
     with open(benchmark_bu_path, 'r') as f:
-            benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
+        benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
     benchmark_tmp_path = os.path.join(gc.dse_root, "tmp_benchmark.yaml")
 
     for factor in scaling_factors:
         tmp_benchmark = [{list(l.keys())[0]: list(l.values())[0] * factor} for l in benchmark_bu[benchmark_name]]
         tmp_benchmark = {'tmp-model': tmp_benchmark}
         with open(benchmark_tmp_path, 'w') as f:
-            yaml.dump(benchmark_tmp_path, f)
+            yaml.dump(tmp_benchmark, f)
 
-        run_focus(benchmark_tmp_path, 8, 1024, 'ted')
+        run_focus(benchmark_tmp_path, 32, 1024, 'ted', verbose=True)
 
 class WaferSearchSpace():
 
@@ -92,7 +94,6 @@ class WaferSearchSpace():
             print(f"Warm up: {key}")
             warm_up(cluster)
 
-            run_single_design_point(warm_up, run_timeloop=True)
             with Pool(processes=16) as pool:
                 pool.map(run_single_design_point, cluster)
             
@@ -100,7 +101,7 @@ class WaferSearchSpace():
 
 if __name__ == "__main__":
     design_points = []
-    with open("design_points.list", 'r') as f:
+    with open("design_points/design_points_203.list", 'r') as f:
         for line in f:
             l = line.strip('[]\n').split(',')
             l = [float(s) for s in l]

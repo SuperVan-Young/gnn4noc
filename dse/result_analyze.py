@@ -47,7 +47,7 @@ class ResultAnalyzer():
         return cur_cluster
 
     def _init_perfs(self, benchmark='gpt2-xl_tiny'):
-        perfs = {k: np.inf for k in self.design_points}
+        perfs = {k: dict() for k in self.design_points}  # dp: {layer: latency}
 
         for dp in self.design_points:
             dp_ = [int(k) for k in dp]
@@ -66,14 +66,23 @@ class ResultAnalyzer():
                 ('raw', reticle_array_w),
                 ('wmbw', wafer_mem_bw),
             ]
-            briefing = benchmark + "_" + "_".join([f"{k}{v}" for k, v in config_briefs])
+            briefing = "_".join([f"{k}{v}" for k, v in config_briefs])
+            task_root = benchmark + "_" + briefing
 
-            try:
-                with open(os.path.join(gc.dse_root, "tasks", briefing, "prediction.json"), 'r') as f:
-                    a = json.load(f)
-                perfs[dp] = int(a)
-            except:
-                continue
+            for root, _, files in os.walk(os.path.join(gc.task_root, task_root, "benchmark")):
+                for file in files:
+                    try:
+                        cur_benchmark_name = file[:-5] + "_" + briefing + ".json"
+                        with open(os.path.join(gc.task_root, task_root, "prediction", cur_benchmark_name), 'r') as f:
+                            a = json.load(f)
+                            # aggregate each layer minimum latency
+                            for k, v in a.items():
+                                if k in perfs[dp].keys():
+                                    perfs[dp][k] = min(perfs[dp][k], v)
+                                else:
+                                    perfs[dp][k] = v
+                    except:
+                        continue
 
         return perfs
 
@@ -83,7 +92,8 @@ class ResultAnalyzer():
         index_to_agg_perf = dict()
 
         for index, cur_cluster in cluster.items():
-            cur_perfs = [perfs[c] for c in cur_cluster]
+            # dp: total_latency
+            cur_perfs = [np.sum(list(perfs[c].values())) for c in cur_cluster]
             if agg == 'min':
                 cur_agg_perf = np.min(cur_perfs)
             elif agg == 'max':
@@ -108,7 +118,7 @@ class ResultAnalyzer():
             fig_title += f"_agg_{agg}"
             plt.title(fig_title)
 
-            fig_path = os.path.join(gc.dse_root, "figs", f"{fig_title}.png")
+            fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
 
             plt.savefig(fig_path)
             plt.clf()
@@ -121,7 +131,7 @@ class ResultAnalyzer():
 
 if __name__ == "__main__":
     design_points = []
-    with open("design_points.list", 'r') as f:
+    with open("design_points/design_points_203.list", 'r') as f:
         for line in f:
             l = line.strip('[]\n').split(',')
             l = [float(s) for s in l]
@@ -129,8 +139,9 @@ if __name__ == "__main__":
 
     analyzer = ResultAnalyzer(design_points)
  
-    cluster_columns = ["core_noc_buffer_size"]
-    fixed_columns = dict()
-    analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min')
-    analyzer.plot_cluster(cluster_columns, fixed_columns, agg='max')
-    analyzer.plot_cluster(cluster_columns, fixed_columns, agg='mean')
+    for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
+        cluster_columns = [prop]
+        fixed_columns = dict()
+        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min')
+        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='max')
+        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='mean')

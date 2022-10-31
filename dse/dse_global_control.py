@@ -28,3 +28,4 @@ def get_spec_path(taskname):
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))
 task_root = os.path.join(dse_root, "tasks1030")
+fig_root = os.path.join(dse_root, "figs1030")

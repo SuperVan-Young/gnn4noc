@@ -9,4 +9,5 @@ predict/tmp
 *.png
 dataset/scripts/throughput
 dataset/scripts/tasks
-dse/tasks
+dse/tasks*
+dse/figs*

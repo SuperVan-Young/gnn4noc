@@ -97,7 +97,6 @@ class WaferConfig():
                 continue
 
 
-
     def _get_config_briefing(self):
         briefs = [
             ('cm', self.core_num_mac),
@@ -153,13 +152,15 @@ class WaferConfig():
         log_max_factor = int(log(max_factor, 2))
         factors = 2 ** np.arange(0, log_max_factor, log_max_factor / 4)
         
+        new_factors = set()
         for factor in factors:
             if factor > 4:
                 factor = int(factor // 4 * 4)
             else:
                 factor = int(factor)
+            new_factors.add(factor)
 
-        return set(factors)
+        return new_factors
 
     def _dump_arch_config(self):
         arch_path = os.path.join(gc.database_root, "arch_bu/cerebras_like.yaml")

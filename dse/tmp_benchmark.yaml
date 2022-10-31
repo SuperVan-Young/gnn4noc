@@ -1,0 +1,5 @@
+tmp-model:
+- gpt2-xl_layer1: 24
+- gpt2-xl_layer2: 8
+- gpt2-xl_layer3: 32
+- gpt2-xl_layer4: 32
