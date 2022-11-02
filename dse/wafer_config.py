@@ -45,7 +45,7 @@ class WaferConfig():
 
         self.task_root = os.path.join(gc.task_root, self._get_config_briefing())
 
-    def run(self, run_timeloop=True, verbose=False, timeout=600):
+    def run(self, run_timeloop=True):
         """Run focus toolchain
         """
         #TODO: benchmark: default is all benchmarks, but could specify one task
@@ -67,24 +67,7 @@ class WaferConfig():
                     pool.map(run_timeloop_mapper, layers)
                 break
 
-        return
-
-        mode = "ted" if run_timeloop else "d"
-        array_size = max(self.core_array_h, self.core_array_w)
-        flit_size = self.core_noc_bw
-
-        for root, __, files in os.walk(os.path.join(task_root, 'benchmark')):
-            for file in files:
-                benchmark_path = os.path.join(root, file)
-                run_focus(benchmark_path, array_size, flit_size, mode, verbose, timeout)
-            break
-        
-        for benchmark_name in benchmark_names:
-            try:
-                self.predict_perf(task_root, benchmark_name)
-            except:
-                print(f"Error in predicting perf: {benchmark_name} {self._get_config_briefing()}")
-                continue
+        self.predict_perf()
 
     def _get_config_briefing(self):
         briefs = [
@@ -355,50 +338,68 @@ class WaferConfig():
                     yaml.dump(arch, f)
 
 
-    def predict_perf(self, task_root, benchmark_name):
-        array_size = max(self.core_array_h, self.core_array_w) * reticle_array_adjust
-        flit_size = self.core_noc_bw
-        taskname = f"{benchmark_name}_b1w{flit_size}_{array_size}x{array_size}"
+    def predict_perf(self):
+        os.system(f"cp {os.path.join(self.task_root, 'arch', 'cerebras_like.yaml')} {os.path.join(gc.database_root, 'arch')}")
+        prediction_root = os.path.join(self.task_root, "prediction")
+        if not os.path.exists(prediction_root):
+            os.mkdir(prediction_root)
 
-        graph_path = gc.get_op_graph_path(taskname)
-        routing_path = gc.get_routing_path(taskname)
-        spec_path = gc.get_spec_path(taskname)
+        for benchmark_root, __, files in os.walk(os.path.join(self.task_root, 'benchmark')):
+            for file in files:
+                benchmark_path = os.path.join(benchmark_root, file)
 
-        assert graph_path != None
-        assert routing_path != None
-        assert spec_path != None
+                with open(benchmark_path, 'r') as f:
+                    benchmark = yaml.load(f, Loader=yaml.FullLoader)
+                assert len(benchmark) == 1, "WaferConfig: only support single model performance prediction"
+                for k, v in benchmark.items():
+                    benchmark_name, benchmark_layers = k, v
 
-        trace_parser = TraceParser(
-            graph_path=graph_path,
-            outlog_path=None,
-            routing_path=routing_path,
-            spec_path=spec_path
-        )
+                get_layer_name = lambda x: list(x.keys())[0]
+                get_layer_num_core = lambda x: list(x.values())[0]
 
-        # assume that we could put a model inside a reticle
-        core_array_size = max(self.core_array_h, self.core_array_w)
-        noc_spec = NoCSpec(
-            trace_parser=trace_parser,
-            # core_array_h=self.core_array_h,
-            core_array_h=core_array_size,
-            # core_array_w=self.core_array_w,
-            core_array_w=core_array_size,
-            reticle_array_h=reticle_array_adjust,
-            # reticle_array_h=self.reticle_array_h,
-            reticle_array_w=reticle_array_adjust,
-            # reticle_array_w=self.reticle_array_w,
-            inter_reticle_bw=self.reticle_bw,
-            inter_core_bw=self.core_noc_bw,
-        )
+                # copy timeloop mapper results to FOCUS dir``
+                layer_dirs = [f"{get_layer_name(l)}_{get_layer_num_core(l)}" for l in benchmark_layers]
+                for layer_dir in layer_dirs:
+                    os.system(f"cp -r {os.path.join(self.task_root, 'layers', layer_dir)} {os.path.join(gc.focus_root, 'buffer', 'timeloop-512g', layer_dir)}") 
 
-        predictor = LinearProgrammingPredictor(trace_parser, noc_spec)
-        latencies = dict()
-        for layer_name in trace_parser.graph_parser.get_layers():
-            latencies[layer_name] = int(predictor.run(layer_name))
+                mode = "ed"  # communication still use FOCUS'
+                core_array_size = max(self.core_array_h, self.core_array_w)
+                flit_size = self.core_noc_bw
+                run_focus(benchmark_path, core_array_size, flit_size, mode, verbose=True, debug=True, timeout=300)
 
-        prediction_path = os.path.join(task_root, "prediction", f"{benchmark_name}.json")
-        with open(prediction_path, "w") as f:
-            json.dump(latencies, f)
+                taskname = f"{benchmark_name}_b1w{flit_size}_{core_array_size}x{core_array_size}"
+                graph_path = gc.get_op_graph_path(taskname)
+                routing_path = gc.get_routing_path(taskname)
+                spec_path = gc.get_spec_path(taskname)
+                assert graph_path != None
+                assert routing_path != None
+                assert spec_path != None
+                trace_parser = TraceParser(
+                    graph_path=graph_path,
+                    outlog_path=None,
+                    routing_path=routing_path,
+                    spec_path=spec_path
+                )
+
+                noc_spec = NoCSpec(
+                    trace_parser=trace_parser,
+                    core_array_h=core_array_size,
+                    core_array_w=core_array_size,
+                    reticle_array_h=1,
+                    reticle_array_w=1,
+                    inter_reticle_bw=self.reticle_bw,
+                    inter_core_bw=self.core_noc_bw,
+                )
+
+                predictor = LinearProgrammingPredictor(trace_parser, noc_spec)
+                latencies = dict()
+                for layer_name in trace_parser.graph_parser.get_layers():
+                    latencies[layer_name] = int(predictor.run(layer_name))
+
+                prediction_path = os.path.join(prediction_root, f"{benchmark_name}.json")
+                with open(prediction_path, "w") as f:
+                    json.dump(latencies, f)
+            break
 
 if __name__ == "__main__":
     wafer_config = WaferConfig(
@@ -418,4 +419,4 @@ if __name__ == "__main__":
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run('gpt2-xl-tiny', True, True)
+    wafer_config.run(run_timeloop=False)
