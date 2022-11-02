@@ -188,11 +188,11 @@ class WaferConfig():
         with open(arch_path, 'w') as f:
             yaml.dump(arch_config, f)
 
-    def _dump_constraints_config(self):
+    def _dump_constraints_config(self, verbose=True):
         """Add constraints for faster timeloop searching"""
 
         def get_max_factor(num, bound):
-            """Return i, s.t. num % i == 0, i <= bound
+            """Return maximum i, s.t. num % i == 0, i <= bound
             """
             if bound > np.sqrt(num):
                 for i in range(int(np.ceil(num / bound)), int(np.ceil(np.sqrt(num)))):
@@ -205,6 +205,29 @@ class WaferConfig():
                 for i in range(bound, 0, -1):
                     if num % i == 0:
                         return i
+
+        def get_max_subfactor(num, factor):
+            """find maximum i, s.t. factor % i == 0, num % i == 0
+            """
+            for i in range(1, int(np.sqrt(factor))):
+                if factor % i == 0:
+                    i_ = factor // i
+                    if num % i_ == 0:
+                        return i_
+            for i in range(int(np.sqrt(factor)), 0, -1):
+                if factor % i == 0 and num % i == 0:
+                    return i
+
+        def get_unroll_factors(dims, factor):
+            """Unroll dims, w.r.t. priority
+            """
+            factors = []
+            for i, dim in enumerate(dims):
+                unroll_factor = get_max_subfactor(dim, factor)
+                dims[i] = dim // unroll_factor
+                factors.append(unroll_factor)
+                factor = factor // unroll_factor
+            return dims, factors
         
         layers_root = os.path.join(self.task_root, "layers")
         if not os.path.exists(layers_root):
@@ -229,15 +252,26 @@ class WaferConfig():
                     layer_config_path = os.path.join(gc.focus_root, "database", model_name, f"{model_name}_layer{layer_id}.yaml")
                     with open(layer_config_path, 'r') as f:
                         layer_config = yaml.load(f, Loader=yaml.FullLoader)
-                    C, M = layer_config['problem']['instance']['C'], layer_config['problem']['instance']['M']
+                    C = layer_config['problem']['instance']['C']
+                    M = layer_config['problem']['instance']['M']
+                    P = layer_config['problem']['instance']['P']
+                    Q = layer_config['problem']['instance']['Q']
+                    R = layer_config['problem']['instance']['R']
+                    S = layer_config['problem']['instance']['S']
+
+                    if verbose:
+                        print(f"layer name: {get_layer_name(l)}")
+                        print(f"Initial C, M, P, Q, R, S = {C}, {M}, {P}, {Q}, {R}, {S}")
 
                     constraint_bu_path = os.path.join(gc.focus_root, "database", "constraints", "simba_constraints_copy.yaml")
                     with open(constraint_bu_path, 'r') as f:
                         constraint = yaml.load(f, Loader=yaml.FullLoader)
                         constraint_targets = constraint['mapspace_constraints']['targets']
 
-                    # utilize PE first
+                    # utilize PE first, only unroll C, M
                     num_utilized_mac = get_max_factor(C*M, self.core_num_mac)
+                    if verbose:
+                        print(f"utilized mac: {num_utilized_mac} / {self.core_num_mac}")
                     if num_utilized_mac % 2 == 0:
                         num_utilized_mac = num_utilized_mac // 2
                         if C % 2 == 0:
@@ -256,24 +290,26 @@ class WaferConfig():
                             })
 
                     # for mac, first unroll C, then unroll M
-                    C_mac_unroll_factor = get_max_factor(C, num_utilized_mac)
-                    M_mac_unroll_factor = num_utilized_mac // C_mac_unroll_factor
+                    mac_dims = [C, M]
+                    mac_dims, mac_factors = get_unroll_factors(mac_dims, num_utilized_mac)
                     constraint_targets.append({
                         'target': 'PEAccuBuffer',
                         'type': 'spatial',
-                        'factors': f"C={C_mac_unroll_factor} M={M_mac_unroll_factor}",
+                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], mac_factors)]),
                     })
-                    C = C // C_mac_unroll_factor
-                    M = M // M_mac_unroll_factor
+                    C = C // mac_factors[0]
+                    M = M // mac_factors[1]
 
-                    # for cores, try best to unroll C and M, even if this does not lead to optimal mapping
-                    num_utilized_core = get_max_factor(C*M, num_core)
-                    C_core_unroll_factor = get_max_factor(C, num_utilized_core)
-                    M_core_unroll_factor = num_utilized_core // C_core_unroll_factor
+                    # utilize all cores, unroll C, M, P, Q, R, S
+                    num_utilized_core = get_max_factor(C*M*P*Q*R*S, num_core)
+                    if verbose:
+                        print(f"utilized core: {num_utilized_core} / {num_core}")
+                    core_dims = [C, M, P, Q, R, S]
+                    core_dims, core_factors = get_unroll_factors(core_dims, num_utilized_core)
                     constraint_targets.append({
                         'target': 'DRAM',
                         'type': 'spatial',
-                        'factors': f"C={C_core_unroll_factor} M={M_core_unroll_factor}",
+                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q', 'R', 'S'], core_factors)]),
                     })
 
                     layer_root = os.path.join(layers_root,  f"{get_layer_name(l)}_{get_layer_num_core(l)}")
@@ -284,6 +320,11 @@ class WaferConfig():
                     with open(constraint_path, 'w') as f:
                         yaml.dump(constraint, f)
                     
+                    if verbose:
+                        print("core factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q', 'R', 'S'], core_factors)]))
+                        print("mac factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], mac_factors)]))
+                        print()
+
     def _run_timeloop(self, benchmark_name):
         """Run benchmark
         """
