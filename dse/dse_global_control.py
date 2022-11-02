@@ -8,6 +8,7 @@ sys.path.append(focus_root)
 database_root = os.path.join(focus_root, "database")
 op_graph_root = os.path.join(focus_root, "buffer", "op_graph")
 simulator_root = os.path.join(focus_root, "simulator", "tasks")
+timeloop_lib_path = os.path.join(focus_root, "libs")
 
 def get_op_graph_path(taskname):
     path = os.path.join(op_graph_root, f"op_graph_{taskname}.gpickle")
@@ -27,5 +28,19 @@ def get_spec_path(taskname):
 
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))
-task_root = os.path.join(dse_root, "tasks1030")
-fig_root = os.path.join(dse_root, "figs1030")
+
+experiment_date = '1102'
+
+task_root = os.path.join(dse_root, "tasks")
+if not os.path.exists(task_root):
+    os.mkdir(task_root)
+task_root = os.path.join(task_root, experiment_date)
+if not os.path.exists(task_root):
+    os.mkdir(task_root)
+
+fig_root = os.path.join(dse_root, "figs")
+if not os.path.exists(fig_root):
+    os.mkdir(fig_root)
+fig_root = os.path.join(fig_root, experiment_date)
+if not os.path.exists(fig_root):
+    os.mkdir(fig_root)

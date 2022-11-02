@@ -6,6 +6,8 @@ import yaml
 import dse_global_control as gc
 from wafer_config import run_focus
 
+benchmark_name = 'dall-e-128'
+
 def run_single_design_point(design_point, run_timeloop=False):
     design_point = [int(s) for s in design_point]
     core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = design_point
@@ -24,7 +26,7 @@ def run_single_design_point(design_point, run_timeloop=False):
         wafer_mem_bw = wafer_mem_bw, 
     )
     try:
-        config.run_focus('gpt2-xl_tiny', run_timeloop=run_timeloop, verbose=False)
+        config.run_focus(benchmark_name, run_timeloop=run_timeloop, verbose=False)
     except:
         print(f"Error: {design_point}")
         return
@@ -34,7 +36,6 @@ def warm_up(cluster):
     """Gather all layer scaling factors that need to run timeloop
     All handwritten, really ugly, but save time!
     """
-    benchmark_name = 'gpt2-xl_tiny'
     scaling_factors = set()
 
     for dp in cluster:
@@ -69,7 +70,7 @@ def warm_up(cluster):
         with open(benchmark_tmp_path, 'w') as f:
             yaml.dump(tmp_benchmark, f)
 
-        run_focus(benchmark_tmp_path, 32, 1024, 'ted', verbose=True)
+        run_focus(benchmark_tmp_path, 64, 1024, 'ted', verbose=True, timeout=1200)
 
 class WaferSearchSpace():
 

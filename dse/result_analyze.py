@@ -33,8 +33,8 @@ class ResultAnalyzer():
             # check fixed columns' value
             skip_dp = False
             for c, v in fixed_columns.items():
-                index = dp[colname2idx[c]]
-                if dp[index] != v:
+                v_ = int(dp[colname2idx[c]])
+                if v_ != v:
                     skip_dp = True
                     break
             if skip_dp: continue
@@ -113,20 +113,33 @@ class ResultAnalyzer():
             plt.xlabel(cluster_columns[0])
             plt.ylabel('total latency')
 
-            fig_title = benchmark + "_" + "_".join(cluster_columns)
-            fig_title += "_" + "_".join([f"{k}{v}" for k, v in fixed_columns])
-            fig_title += f"_agg_{agg}"
-            plt.title(fig_title)
-
-            fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
-
-            plt.savefig(fig_path)
-            plt.clf()
-
         elif dim == 2:
-            raise NotImplementedError
+            xy = list(index_to_agg_perf.keys())
+            x = np.log2([k[0] for k in xy])
+            y = np.log2([k[1] for k in xy])
+            z = np.array(list(index_to_agg_perf.values()))
+            # print(xy)
+            # print(z.shape)
+
+            ax = plt.axes(projection='3d')
+            # ax.scatter(x, y, z, cmap='viridis')
+            ax.bar3d(x, y, 0, 0.25, 0.25, z, shade=1)
+            ax.view_init(elev=33, azim=74)
+            ax.set_xlabel(f"{cluster_columns[0]} (log)")
+            ax.set_ylabel(f"{cluster_columns[1]} (log)")
+
         else:
             raise RuntimeError(f"Invalid dim {dim}")
+
+        fig_title = benchmark + "_" + "_".join(cluster_columns)
+        fig_title += "_" + "_".join([f"{k}{v}" for k, v in fixed_columns.items()])
+        fig_title += f"_agg_{agg}"
+        plt.title(fig_title)
+
+        fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
+
+        plt.savefig(fig_path)
+        plt.clf()
 
 
 if __name__ == "__main__":
@@ -139,9 +152,19 @@ if __name__ == "__main__":
 
     analyzer = ResultAnalyzer(design_points)
  
-    for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
-        cluster_columns = [prop]
-        fixed_columns = dict()
-        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min')
-        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='max')
-        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='mean')
+    # for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
+    #     cluster_columns = [prop]
+    #     fixed_columns = dict()
+    #     analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min')
+    #     analyzer.plot_cluster(cluster_columns, fixed_columns, agg='max')
+    #     analyzer.plot_cluster(cluster_columns, fixed_columns, agg='mean')
+
+    for core_buffer_bw in 2 ** np.arange(5, 12):
+        for core_buffer_size in 2 ** np.arange(5, 12):
+            cluster_columns = ['core_noc_bw']
+            fixed_columns = {'core_buffer_size': core_buffer_size}
+            try:
+                analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
+            except:
+                print(f"error: {cluster_columns} {fixed_columns}")
+                continue

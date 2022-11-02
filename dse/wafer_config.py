@@ -3,10 +3,11 @@ import yaml
 import json
 import re
 import numpy as np
+from tqdm import tqdm
 
 from noc_spec import NoCSpec
 import dse_global_control as gc
-from sp_runner import run_focus
+from sp_runner import run_focus, run_timeloop_mapper
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,7 +43,7 @@ class WaferConfig():
 
         self.task_root = os.path.join(gc.task_root, self._get_config_briefing())
 
-    def run(self, benchmark_name, run_timeloop=True, verbose=False, timeout=600):
+    def run(self, run_timeloop=True, verbose=False, timeout=600):
         """Run focus toolchain
         """
         #TODO: benchmark: default is all benchmarks, but could specify one task
@@ -56,6 +57,14 @@ class WaferConfig():
         if run_timeloop:
             self._dump_arch_config()
             self._dump_constraints_config()
+            self._dump_modified_arch_config()
+
+            for layers_root, dirs, files in os.walk(os.path.join(task_root, "layers")):
+                for layer_dir in tqdm(dirs, desc="Timeloop mapper") if verbose else dirs:
+                    run_timeloop_mapper(os.path.join(layers_root, layer_dir), verbose=False, timeout=1)
+                break
+
+        print()
 
         return
 
@@ -188,7 +197,7 @@ class WaferConfig():
         with open(arch_path, 'w') as f:
             yaml.dump(arch_config, f)
 
-    def _dump_constraints_config(self, verbose=True):
+    def _dump_constraints_config(self, verbose=False):
         """Add constraints for faster timeloop searching"""
 
         def get_max_factor(num, bound):
@@ -325,9 +334,22 @@ class WaferConfig():
                         print("mac factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], mac_factors)]))
                         print()
 
-    def _run_timeloop(self, benchmark_name):
-        """Run benchmark
+    def _dump_modified_arch_config(self):
+        """Copied from FOCUS toolchain.
         """
+        with open(os.path.join(self.task_root, 'arch', 'cerebras_like.yaml')) as f:
+            arch = yaml.load(f, Loader=yaml.FullLoader)
+
+        for layers_root, dirs, files in os.walk(os.path.join(self.task_root, "layers")):
+            for layer_dir in dirs:
+                top_level_pe_cnt = int(re.search(r"^.*_(\d+)$", layer_dir).group(1))
+                top_level_name = arch["architecture"]["subtree"][0]["subtree"][0]["name"]
+                new_top_level_name = re.sub(r"0..\d+", "0.."+str(top_level_pe_cnt-1), top_level_name)
+                arch["architecture"]["subtree"][0]["subtree"][0]["name"] = new_top_level_name
+
+                new_top_arch_spec = os.path.join(layers_root, layer_dir, "modified_arch.yaml")
+                with open(new_top_arch_spec, 'w') as f:
+                    yaml.dump(arch, f)
 
 
     def predict_perf(self, task_root, benchmark_name):
