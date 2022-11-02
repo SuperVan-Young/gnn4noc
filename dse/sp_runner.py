@@ -31,7 +31,7 @@ def run_focus(benchmark_path, array_size, flit_size, mode, verbose=False, debug=
     if verbose:
         print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
 
-def run_timeloop_mapper(layer_root, verbose=False, timeout=10):
+def run_timeloop_mapper(layer_root, verbose=False, timeout=1):
     """ layer root has prepared:
     - top level arch spec (fetch component spec from FOCUS)
     - constraint spec

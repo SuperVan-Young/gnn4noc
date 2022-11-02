@@ -4,6 +4,8 @@ import json
 import re
 import numpy as np
 from tqdm import tqdm
+import time
+import multiprocessing as mp
 
 from noc_spec import NoCSpec
 import dse_global_control as gc
@@ -60,11 +62,10 @@ class WaferConfig():
             self._dump_modified_arch_config()
 
             for layers_root, dirs, files in os.walk(os.path.join(task_root, "layers")):
-                for layer_dir in tqdm(dirs, desc="Timeloop mapper") if verbose else dirs:
-                    run_timeloop_mapper(os.path.join(layers_root, layer_dir), verbose=False, timeout=1)
+                layers = [os.path.join(layers_root, l) for l in dirs]
+                with mp.Pool(processes=4) as pool:  # this is much faster
+                    pool.map(run_timeloop_mapper, layers)
                 break
-
-        print()
 
         return
 
@@ -218,7 +219,7 @@ class WaferConfig():
         def get_max_subfactor(num, factor):
             """find maximum i, s.t. factor % i == 0, num % i == 0
             """
-            for i in range(1, int(np.sqrt(factor))):
+            for i in range(1, int(np.ceil(np.sqrt(factor)))):
                 if factor % i == 0:
                     i_ = factor // i
                     if num % i_ == 0:
@@ -233,10 +234,10 @@ class WaferConfig():
             factors = []
             for i, dim in enumerate(dims):
                 unroll_factor = get_max_subfactor(dim, factor)
-                dims[i] = dim // unroll_factor
+                # if verbose: print(f"{unroll_factor} = get_max_subfactor({dim}, {factor})")
                 factors.append(unroll_factor)
                 factor = factor // unroll_factor
-            return dims, factors
+            return factors
         
         layers_root = os.path.join(self.task_root, "layers")
         if not os.path.exists(layers_root):
@@ -300,7 +301,8 @@ class WaferConfig():
 
                     # for mac, first unroll C, then unroll M
                     mac_dims = [C, M]
-                    mac_dims, mac_factors = get_unroll_factors(mac_dims, num_utilized_mac)
+                    mac_factors = get_unroll_factors(mac_dims, num_utilized_mac)
+                    assert(np.prod(mac_factors) == num_utilized_mac)
                     constraint_targets.append({
                         'target': 'PEAccuBuffer',
                         'type': 'spatial',
@@ -314,7 +316,8 @@ class WaferConfig():
                     if verbose:
                         print(f"utilized core: {num_utilized_core} / {num_core}")
                     core_dims = [C, M, P, Q, R, S]
-                    core_dims, core_factors = get_unroll_factors(core_dims, num_utilized_core)
+                    core_factors = get_unroll_factors(core_dims, num_utilized_core)
+                    assert(np.prod(core_factors) == num_utilized_core)
                     constraint_targets.append({
                         'target': 'DRAM',
                         'type': 'spatial',
