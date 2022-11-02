@@ -1,6 +1,7 @@
 import os
 import yaml
 import json
+import re
 import numpy as np
 
 from noc_spec import NoCSpec
@@ -45,17 +46,18 @@ class WaferConfig():
         """Run focus toolchain
         """
         #TODO: benchmark: default is all benchmarks, but could specify one task
-        task_root = os.path.join(gc.task_root, f"{benchmark}_{self._get_config_briefing()}")
+        task_root = os.path.join(gc.task_root, self._get_config_briefing())
         if not os.path.exists(task_root):
             os.mkdir(task_root)
-            os.mkdir(os.path.join(task_root, "benchmark"))
-            os.mkdir(os.path.join(task_root, "prediction"))
 
         # dump all benchmarks to task_root/benchmark/xxx.yaml
-        benchmark_names = self._dump_benchmark(task_root, benchmark)
+        self._dump_benchmark()
 
         if run_timeloop:
             self._dump_arch_config()
+            self._dump_constraints_config()
+
+        return
 
         mode = "ted" if run_timeloop else "d"
         array_size = max(self.core_array_h, self.core_array_w)
@@ -96,6 +98,10 @@ class WaferConfig():
         - Rename benchmark model, s.t. FOCUS will not overlap the result
         - Adjust core allocation, try to give as many cores as possible
         """
+        benchmark_root = os.path.join(self.task_root, "benchmark")
+        if not os.path.exists(benchmark_root):
+            os.mkdir(benchmark_root)
+
         for benchmark_bu_root, dirs, files in os.walk(os.path.join(gc.dse_root, "benchmark")):
             for file in files:
                 benchmark_bu_path = os.path.join(benchmark_bu_root, file)
@@ -103,7 +109,7 @@ class WaferConfig():
                 with open(benchmark_bu_path, 'r') as f:
                     benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
                 assert len(benchmark_bu) == 1, "WaferConfig: only support single model performance prediction"
-                for k, v in benchmark_bu:
+                for k, v in benchmark_bu.items():
                     benchmark_bu_name, benchmark_bu_layers = k, v
 
                 get_layer_name = lambda x: list(x.keys())[0]
@@ -118,27 +124,9 @@ class WaferConfig():
                 new_benchmark_config = [{get_layer_name(l): max(int(get_layer_num_core(l) * core_factor), 2)} for l in benchmark_bu_layers]
                 new_benchmark = {new_benchmark_name : new_benchmark_config}
 
-                benchmark_path = os.path.join(self.task_root, "benchmark", file)
+                benchmark_path = os.path.join(benchmark_root, file)
                 with open(benchmark_path, "w") as f:
                     yaml.dump(new_benchmark, f)
-        
-
-    def _get_layer_allocation(self, benchmark_name):
-        """Allocate all cores on a reticle to each layer in benchmark model
-        """
-        benchmark_bu_path = os.path.join(gc.dse_root, "benchmark", f"{benchmark_name}.yaml")
-
-        with open(benchmark_bu_path, 'r') as f:
-            benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
-        assert len(benchmark_bu) == 1, "WaferConfig: Not supporting multi model prediction"
-
-        reticle_core_num = self.core_array_h * self.core_array_w
-        max_factor = reticle_core_num / 
-        if max_factor < 1:
-            print("Wafer Config: warning: max factor < 1, the array is over-utilized. Reset max factor to 1 by default.")
-        max_factor = max(max_factor, 1)  # at least 1
-
-        return max_factor
 
     def _dump_arch_config(self):
         """Modify architecture configuration.
@@ -191,12 +179,114 @@ class WaferConfig():
         pe_config[2]['attributes']['depth'] = 512 * 8 // mac_datawidth
         pe_config[2]['attributes']['nbanks'] = self.core_num_mac
 
-        arch_path = os.path.join(gc.database_root, "arch/cerebras_like.yaml")
+        # dump arch config
+        arch_root = os.path.join(self.task_root, "arch")
+        if not os.path.exists(arch_root):
+            os.mkdir(arch_root)
+
+        arch_path = os.path.join(arch_root, "cerebras_like.yaml")
         with open(arch_path, 'w') as f:
             yaml.dump(arch_config, f)
 
     def _dump_constraints_config(self):
         """Add constraints for faster timeloop searching"""
+
+        def get_max_factor(num, bound):
+            """Return i, s.t. num % i == 0, i <= bound
+            """
+            if bound > np.sqrt(num):
+                for i in range(int(np.ceil(num / bound)), int(np.ceil(np.sqrt(num)))):
+                    if num % i == 0:
+                        return num // i
+                for i in range(int(np.sqrt(num)), 0, -1):
+                    if num % i == 0:
+                        return i
+            else:
+                for i in range(bound, 0, -1):
+                    if num % i == 0:
+                        return i
+        
+        layers_root = os.path.join(self.task_root, "layers")
+        if not os.path.exists(layers_root):
+            os.mkdir(layers_root)
+
+        for benchmark_root, dirs, files in os.walk(os.path.join(self.task_root, "benchmark")):
+            for file in files:
+                benchmark_path = os.path.join(benchmark_root, file)
+                with open(benchmark_path, 'r') as f:
+                    benchmark = yaml.load(f, Loader=yaml.FullLoader)
+                for k, v in benchmark.items():
+                    benchmark_name, benchmark_layers = k, v
+
+                get_layer_name = lambda x: list(x.keys())[0]
+                get_layer_num_core = lambda x: list(x.values())[0]
+
+                for l in benchmark_layers:
+                    num_core = get_layer_num_core(l)
+
+                    parsed_layer_name = re.search(r"(^.*)_layer(\d+)$", get_layer_name(l))
+                    model_name, layer_id = parsed_layer_name.group(1), parsed_layer_name.group(2)
+                    layer_config_path = os.path.join(gc.focus_root, "database", model_name, f"{model_name}_layer{layer_id}.yaml")
+                    with open(layer_config_path, 'r') as f:
+                        layer_config = yaml.load(f, Loader=yaml.FullLoader)
+                    C, M = layer_config['problem']['instance']['C'], layer_config['problem']['instance']['M']
+
+                    constraint_bu_path = os.path.join(gc.focus_root, "database", "constraints", "simba_constraints_copy.yaml")
+                    with open(constraint_bu_path, 'r') as f:
+                        constraint = yaml.load(f, Loader=yaml.FullLoader)
+                        constraint_targets = constraint['mapspace_constraints']['targets']
+
+                    # utilize PE first
+                    num_utilized_mac = get_max_factor(C*M, self.core_num_mac)
+                    if num_utilized_mac % 2 == 0:
+                        num_utilized_mac = num_utilized_mac // 2
+                        if C % 2 == 0:
+                            C = C // 2
+                            constraint_targets.append({
+                                'target': 'GlobalBuffer',
+                                'type': 'spatial',
+                                'factors': 'C=2',
+                            })
+                        else:
+                            M = M // 2
+                            constraint_targets.append({
+                                'target': 'GlobalBuffer',
+                                'type': 'spatial',
+                                'factors': 'M=2',
+                            })
+
+                    # for mac, first unroll C, then unroll M
+                    C_mac_unroll_factor = get_max_factor(C, num_utilized_mac)
+                    M_mac_unroll_factor = num_utilized_mac // C_mac_unroll_factor
+                    constraint_targets.append({
+                        'target': 'PEAccuBuffer',
+                        'type': 'spatial',
+                        'factors': f"C={C_mac_unroll_factor} M={M_mac_unroll_factor}",
+                    })
+                    C = C // C_mac_unroll_factor
+                    M = M // M_mac_unroll_factor
+
+                    # for cores, try best to unroll C and M, even if this does not lead to optimal mapping
+                    num_utilized_core = get_max_factor(C*M, num_core)
+                    C_core_unroll_factor = get_max_factor(C, num_utilized_core)
+                    M_core_unroll_factor = num_utilized_core // C_core_unroll_factor
+                    constraint_targets.append({
+                        'target': 'DRAM',
+                        'type': 'spatial',
+                        'factors': f"C={C_core_unroll_factor} M={M_core_unroll_factor}",
+                    })
+
+                    layer_root = os.path.join(layers_root,  f"{get_layer_name(l)}_{get_layer_num_core(l)}")
+                    if not os.path.exists(layer_root):
+                        os.mkdir(layer_root)
+
+                    constraint_path = os.path.join(layer_root, "constraints.yaml")
+                    with open(constraint_path, 'w') as f:
+                        yaml.dump(constraint, f)
+                    
+    def _run_timeloop(self, benchmark_name):
+        """Run benchmark
+        """
 
 
     def predict_perf(self, task_root, benchmark_name):
@@ -260,6 +350,6 @@ if __name__ == "__main__":
         reticle_array_h = 4, 
         reticle_array_w = 4,
 
-        wafer_mem_bw = 4096,
+        wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run_focus('gpt2-xl_tiny', True, True)
+    wafer_config.run('gpt2-xl-tiny', True, True)
