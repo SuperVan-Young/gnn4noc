@@ -30,7 +30,7 @@ def run_focus(benchmark_path, array_size, flit_size, mode, verbose=False, debug=
     end_time = time.time()
     print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
 
-def run_timeloop_mapper(layer_root, verbose=False, timeout=1):
+def run_timeloop_mapper(layer_root, verbose=True, timeout=1):
     """ layer root has prepared:
     - top level arch spec (fetch component spec from FOCUS)
     - constraint spec
@@ -65,8 +65,9 @@ def run_timeloop_mapper(layer_root, verbose=False, timeout=1):
         env["LD_LIBRARY_PATH"] = "{}".format(os.path.join(gc.focus_root, "libs"))
 
     begin_time = time.time()
-    sp = subprocess.Popen(command, cwd=layer_root, shell=True, env=env, preexec_fn=os.setpgrp)
 
+    # sp = subprocess.Popen(command, cwd=layer_root, shell=True, env=env, preexec_fn=os.setpgrp)
+    sp = subprocess.Popen(command, cwd=layer_root, shell=True, env=env, start_new_session=True)
     def sigint_handler(signum, frame):
         os.killpg(os.getpgid(sp.pid), signal.SIGINT)
         exit(-1)
@@ -77,12 +78,12 @@ def run_timeloop_mapper(layer_root, verbose=False, timeout=1):
     except subprocess.TimeoutExpired:
         if verbose: print("Info: Mapper timeout, stop searching now.")
         os.killpg(os.getpgid(sp.pid), signal.SIGINT)
-        sp.wait()
+    sp.wait()
 
     end_time = time.time()
     if verbose: print(f"Info: Mapper search complete in {end_time - begin_time} seconds.")
 
-def run_timeloop_model(layer_root, verbose=False):
+def run_timeloop_model(layer_root, verbose=True):
     """Run timeloop model, prepare for communication status. 
     Directly copied from FOCUS.
     """
@@ -102,8 +103,12 @@ def run_timeloop_model(layer_root, verbose=False):
 
     dump_mapping_file = os.path.join(layer_root, "dump_mapping.yaml")
 
-    transformer = Loop2Map()
-    transformer.transform(mapper_map_file, prob_specs, dump_mapping_file)
+    try:
+        transformer = Loop2Map()
+        transformer.transform(mapper_map_file, prob_specs, dump_mapping_file)
+    except:
+        if verbose: print(f"Loop2Map Error, possibly timeloop mapper map file is missing")
+        return
 
     # invoke model for getting communication status, single process
     executable = os.path.join(gc.timeloop_lib_path, 'timeloop-model')
@@ -115,11 +120,16 @@ def run_timeloop_model(layer_root, verbose=False):
     else:
         env["LD_LIBRARY_PATH"] = "{}".format(os.path.join(gc.focus_root, "libs"))
 
-    if verbose:
-        model_sp = subprocess.Popen(command, cwd=layer_root, shell=True, env=env)
-    else:
-        model_sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    cwd=layer_root, shell=True, env=env)
+    begin_time = time.time()
+    try:
+        if verbose:
+            model_sp = subprocess.Popen(command, cwd=layer_root, shell=True, env=env)
+        else:
+            model_sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                        cwd=layer_root, shell=True, env=env)
+    except:
+        if verbose: print(f"Error in timeloop model")
     model_sp.wait()
+    end_time = time.time()
 
-    if verbose: print("Info: Communication status extraction finished")
+    if verbose: print(f"Info: Communication status extraction finished in {end_time - begin_time} seconds")

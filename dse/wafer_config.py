@@ -45,36 +45,42 @@ class WaferConfig():
 
         self.task_root = os.path.join(gc.task_root, self._get_config_briefing())
 
-    def run(self, invoke_timeloop_mapper, invoke_timeloop_model, predict):
+    def run(self, invoke_timeloop_mapper, invoke_timeloop_model, predict, verbose=False):
         """Run focus toolchain
         """
         task_root = os.path.join(gc.task_root, self._get_config_briefing())
         if not os.path.exists(task_root):
             os.mkdir(task_root)
 
-        # dump all benchmarks to task_root/benchmark/xxx.yaml
+        # dump all necessary configuration specs
         self._dump_benchmark()
+        self._dump_arch_config()
+        self._dump_constraints_config()
+        self._dump_modified_arch_config()
 
         if invoke_timeloop_mapper:
-            self._dump_arch_config()
-            self._dump_constraints_config()
-            self._dump_modified_arch_config()
+            if verbose: print(f"{self._get_config_briefing()}: Running timeloop mapper")
 
             for layers_root, dirs, files in os.walk(os.path.join(task_root, "layers")):
                 layers = [os.path.join(layers_root, l) for l in dirs]
-                with mp.Pool(processes=4) as pool:  # this is much faster
+                with mp.Pool(processes=8) as pool:  # this is much faster
                     pool.map(run_timeloop_mapper, layers)
                 break
+            if verbose: print(f"{self._get_config_briefing()}: Finish timeloop mapper")
         
         if invoke_timeloop_model:
+            if verbose: print(f"{self._get_config_briefing()}: Running timeloop model")
             for layers_root, dirs, files in os.walk(os.path.join(task_root, "layers")):
                 layers = [os.path.join(layers_root, l) for l in dirs]
                 with mp.Pool(processes=32) as pool:
                     pool.map(run_timeloop_model, layers)
                 break
+            if verbose: print(f"{self._get_config_briefing()}: Finish timeloop model")
 
         if predict:
+            if verbose: print(f"{self._get_config_briefing()}: Predicting performance")
             self.predict_perf()
+            if verbose: print(f"{self._get_config_briefing()}: Finish predicting performance")
 
     def _get_config_briefing(self):
         briefs = [
@@ -421,8 +427,8 @@ if __name__ == "__main__":
         core_noc_bw = 1024,
         core_noc_vc = 4,
         core_noc_buffer_size = 2,
-        core_array_h = 50,
-        core_array_w = 50,
+        core_array_h = 100,
+        core_array_w = 100,
 
         reticle_bw = 1024,
         reticle_array_h = 4, 
@@ -430,4 +436,4 @@ if __name__ == "__main__":
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, predict=True)
+    wafer_config.run(invoke_timeloop_mapper=True, invoke_timeloop_model=True, predict=True, verbose=True)
