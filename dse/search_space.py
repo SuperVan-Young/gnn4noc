@@ -1,12 +1,10 @@
 import os
 from wafer_config import WaferConfig
 from multiprocessing import Pool
-import json
-import yaml
 import dse_global_control as gc
-from wafer_config import run_focus
-
-benchmark_name = 'dall-e-128'
+from sp_runner import run_timeloop_model
+import traceback
+import sys
 
 def parse_design_point_list(list_path):
     design_points = []
@@ -17,96 +15,84 @@ def parse_design_point_list(list_path):
             design_points.append(l)
     return design_points
 
-def run_single_design_point(design_point):
-    design_point = [int(s) for s in design_point]
-    core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = design_point
-    config = WaferConfig(
-        core_num_mac = core_num_mac, 
-        core_buffer_bw = core_buffer_bw, 
-        core_buffer_size = core_buffer_size, 
-        core_noc_bw = core_noc_bw, 
-        core_noc_vc = core_noc_vc, 
-        core_noc_buffer_size = core_noc_buffer_size, 
-        core_array_h = core_array_h, 
-        core_array_w = core_array_w, 
-        reticle_bw = reticle_bw, 
-        reticle_array_h = reticle_array_h, 
-        reticle_array_w = reticle_array_w, 
-        wafer_mem_bw = wafer_mem_bw, 
-    )
-    try:
-        config.run(run_timeloop=False)
-    except:
-        print(f"Error: {design_point}")
-        return
-    print(f"Success: {design_point}")
-
-def warm_up(cluster):
-    """Gather all layer scaling factors that need to run timeloop
-    All handwritten, really ugly, but save time!
-    """
-    scaling_factors = set()
-
-    for dp in cluster:
-        dp = [int(s) for s in dp]
-        core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = dp
-        config = WaferConfig(
-            core_num_mac = core_num_mac, 
-            core_buffer_bw = core_buffer_bw, 
-            core_buffer_size = core_buffer_size, 
-            core_noc_bw = core_noc_bw, 
-            core_noc_vc = core_noc_vc, 
-            core_noc_buffer_size = core_noc_buffer_size, 
-            core_array_h = core_array_h, 
-            core_array_w = core_array_w, 
-            reticle_bw = reticle_bw, 
-            reticle_array_h = reticle_array_h, 
-            reticle_array_w = reticle_array_w, 
-            wafer_mem_bw = wafer_mem_bw, 
-        )
-        scaling_factors = scaling_factors.union(config._get_layer_scaling_factor(benchmark_name))
-
-    print(f"scaling factors: {scaling_factors}")
-
-    benchmark_bu_path = os.path.join(gc.dse_root, "benchmark", f"{benchmark_name}.yaml")
-    with open(benchmark_bu_path, 'r') as f:
-        benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
-    benchmark_tmp_path = os.path.join(gc.dse_root, "tmp_benchmark.yaml")
-
-    for factor in scaling_factors:
-        tmp_benchmark = [{list(l.keys())[0]: list(l.values())[0] * factor} for l in benchmark_bu[benchmark_name]]
-        tmp_benchmark = {'tmp-model': tmp_benchmark}
-        with open(benchmark_tmp_path, 'w') as f:
-            yaml.dump(tmp_benchmark, f)
-
-        run_focus(benchmark_tmp_path, 64, 1024, 'ted', verbose=True, timeout=1200)
-
 class WaferSearchSpace():
 
-    def __init__(self, design_points):
+    def __init__(self, design_points, ):
         self.total_design_points = len(design_points)
         self.design_points = design_points
-        # self.design_point_cluster = self._cluster_arch_config(design_points)
 
-    def _cluster_arch_config(self, design_points):
-        cluster = dict()
-        for dp in design_points:
-            index = (dp[0], dp[1], dp[2]) # buffer size, buffer bw, num mac
-            if index not in cluster.keys():
-                cluster[index] = []
-            cluster[index].append(dp)
-        return cluster
-
-    def run(self):
+    def run(self, invoke_timeloop_mapper, invoke_timeloop_model, predict, verbose=False, debug=False):
         print(f"total design points: {self.total_design_points}")
-        # print(f"number of clusters: {len(self.design_point_cluster)}")
 
-        for dp in self.design_points:
-            print(dp)
-            run_single_design_point(dp)
+        if invoke_timeloop_mapper:
+            for dp in self.design_points:
+                if verbose: print(f"Running Timeloop mapper for {dp}")
+                core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = [int(s) for s in dp]
+                config = WaferConfig(
+                    core_num_mac = core_num_mac, 
+                    core_buffer_bw = core_buffer_bw, 
+                    core_buffer_size = core_buffer_size, 
+                    core_noc_bw = core_noc_bw, 
+                    core_noc_vc = core_noc_vc, 
+                    core_noc_buffer_size = core_noc_buffer_size, 
+                    core_array_h = core_array_h, 
+                    core_array_w = core_array_w, 
+                    reticle_bw = reticle_bw, 
+                    reticle_array_h = reticle_array_h, 
+                    reticle_array_w = reticle_array_w, 
+                    wafer_mem_bw = wafer_mem_bw, 
+                )
+                try:
+                    config.run(invoke_timeloop_mapper=True, invoke_timeloop_model=False, predict=False)
+                except:
+                    if verbose: print(f"Error: Timeloop mapper {dp}")
+                    continue
+                if verbose: print(f"Success: Timeloop mapper {dp}")
+
+        if invoke_timeloop_model:
+            layer_roots = []
+            for _, config_dirs, __ in os.walk(gc.task_root):
+                for config_dir in config_dirs:
+                    for layer_root, layer_dirs, __ in os.walk(os.path.join(gc.task_root, config_dir, "layers")):
+                        for layer_dir in layer_dirs:
+                            layer_roots.append(os.path.join(layer_root, layer_dir))
+                        break
+                break
+
+            with Pool(processes=32) as pool:
+                pool.map(run_timeloop_model, layer_roots)
+
+        if predict:
+            for dp in self.design_points:
+                if verbose: print(f"Running prediction for {dp}")
+                core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = [int(s) for s in dp]
+                config = WaferConfig(
+                    core_num_mac = core_num_mac, 
+                    core_buffer_bw = core_buffer_bw, 
+                    core_buffer_size = core_buffer_size, 
+                    core_noc_bw = core_noc_bw, 
+                    core_noc_vc = core_noc_vc, 
+                    core_noc_buffer_size = core_noc_buffer_size, 
+                    core_array_h = core_array_h, 
+                    core_array_w = core_array_w, 
+                    reticle_bw = reticle_bw, 
+                    reticle_array_h = reticle_array_h, 
+                    reticle_array_w = reticle_array_w, 
+                    wafer_mem_bw = wafer_mem_bw, 
+                )
+                try:
+                    config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, predict=True)
+                except:
+                    if verbose: print(f"Error: predictor {dp}")
+                    if debug:
+                        exc_type, exc_value, exc_traceback = sys.exc_info()
+                        traceback.print_exception(exc_type, exc_value, exc_traceback, limit=None, file=sys.stderr)
+                        return
+                    continue
+                if verbose: print(f"Success: predictor {dp}")
             
 if __name__ == "__main__":
     list_path = os.path.join(gc.dse_root, "design_points/design_points_203.list")
     design_points = parse_design_point_list(list_path)
-    search_space = WaferSearchSpace(design_points)
-    search_space.run()
+    search_space = WaferSearchSpace(design_points, )
+    search_space.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, predict=True, verbose=True, debug=True)

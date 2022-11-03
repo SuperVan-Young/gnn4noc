@@ -10,21 +10,22 @@ op_graph_root = os.path.join(focus_root, "buffer", "op_graph")
 simulator_root = os.path.join(focus_root, "simulator", "tasks")
 timeloop_lib_path = os.path.join(focus_root, "libs")
 
+# let user check if the path exists
 def get_op_graph_path(taskname):
     path = os.path.join(op_graph_root, f"op_graph_{taskname}.gpickle")
-    return path if os.path.exists(path) else None
+    return path
     
 def get_outlog_path(taskname):
     path = os.path.join(simulator_root, taskname, "out.log")
-    return path if os.path.exists(path) else None
+    return path
 
 def get_routing_path(taskname):
     path = os.path.join(simulator_root, taskname, "routing_board")
-    return path if os.path.exists(path) else None
+    return path
 
 def get_spec_path(taskname):
     path = os.path.join(simulator_root, taskname, "spatial_spec")
-    return path if os.path.exists(path) else None
+    return path
 
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))

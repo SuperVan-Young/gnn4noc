@@ -45,7 +45,7 @@ class WaferConfig():
 
         self.task_root = os.path.join(gc.task_root, self._get_config_briefing())
 
-    def run(self, invoke_timeloop_mapper, invoke_timeloop_model):
+    def run(self, invoke_timeloop_mapper, invoke_timeloop_model, predict):
         """Run focus toolchain
         """
         task_root = os.path.join(gc.task_root, self._get_config_briefing())
@@ -73,7 +73,8 @@ class WaferConfig():
                     pool.map(run_timeloop_model, layers)
                 break
 
-        self.predict_perf()
+        if predict:
+            self.predict_perf()
 
     def _get_config_briefing(self):
         briefs = [
@@ -366,7 +367,11 @@ class WaferConfig():
                 # copy timeloop mapper results to FOCUS dir``
                 layer_dirs = [f"{get_layer_name(l)}_{get_layer_num_core(l)}" for l in benchmark_layers]
                 for layer_dir in layer_dirs:
-                    os.system(f"cp -r {os.path.join(self.task_root, 'layers', layer_dir)} {os.path.join(gc.focus_root, 'buffer', 'timeloop-512g', layer_dir)}") 
+                    src_dir = os.path.join(self.task_root, 'layers', layer_dir)
+                    dst_dir = os.path.join(gc.focus_root, 'buffer', 'timeloop-512g', layer_dir)
+                    if os.path.exists(dst_dir):
+                        os.system(f"rm -r {dst_dir}")
+                    os.system(f"cp -r {src_dir} {dst_dir}") 
 
                 mode = "d"  # communication still use FOCUS'
                 core_array_size = max(self.core_array_h, self.core_array_w)
@@ -377,9 +382,9 @@ class WaferConfig():
                 graph_path = gc.get_op_graph_path(taskname)
                 routing_path = gc.get_routing_path(taskname)
                 spec_path = gc.get_spec_path(taskname)
-                assert graph_path != None
-                assert routing_path != None
-                assert spec_path != None
+                assert os.path.exists(graph_path), f"graph_path {graph_path} doesn't exist!"
+                assert os.path.exists(routing_path), f"routing_path {routing_path} doesn't exist!"
+                assert os.path.exists(spec_path), f"spec_path {spec_path} doesn't exist!"
                 trace_parser = TraceParser(
                     graph_path=graph_path,
                     outlog_path=None,
@@ -425,4 +430,4 @@ if __name__ == "__main__":
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=True)
+    wafer_config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, predict=True)

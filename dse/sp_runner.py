@@ -12,7 +12,7 @@ def run_focus(benchmark_path, array_size, flit_size, mode, verbose=False, debug=
 
     command = f"python {executable} -bm {benchmark_path} -d {array_size} -b 1 \
                 -fr {flit_size}-{flit_size}-{flit_size} {mode}" \
-                + " -debug" if debug else ""
+                + (" -debug" if debug else "")
 
     begin_time = time.time()
     if verbose:
@@ -122,4 +122,4 @@ def run_timeloop_model(layer_root, verbose=False):
                                     cwd=layer_root, shell=True, env=env)
     model_sp.wait()
 
-    print("Info: Communication status extraction finished")
+    if verbose: print("Info: Communication status extraction finished")
