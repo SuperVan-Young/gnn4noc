@@ -6,6 +6,8 @@ sys.path.append("..")
 import global_control as gc
 from compiler.op_graph.micro_op_graph import MicroOpGraph
 
+bypass_dumping_inst = True  # set this according to trace_generator!
+
 class GraphParser():
     def __init__(self, op_graph_path) -> None:
         self.op_graph_path = op_graph_path
@@ -52,7 +54,7 @@ class GraphParser():
 
             # propagate data to data edges
             out_data_edges = [(u, v) for u, v, t in op_graph.out_edges(node, data="edge_type") if t == "data" and node2pe(u) != node2pe(v)]
-            for _ in range(iteraction_cnt):
+            for _ in range(iteraction_cnt if not bypass_dumping_inst else 1):
                 flows = {op_graph.edges[e]["fid"] for e in out_data_edges}
                 fid_to_pid = {fid: pid for fid, pid in zip(flows, range(pkt_counter, pkt_counter + len(flows)))}
                 pkt_counter += len(flows)

@@ -8,7 +8,16 @@ from wafer_config import run_focus
 
 benchmark_name = 'dall-e-128'
 
-def run_single_design_point(design_point, run_timeloop=False):
+def parse_design_point_list(list_path):
+    design_points = []
+    with open(list_path, 'r') as f:
+        for line in f:
+            l = line.strip('[]\n').split(',')
+            l = [float(s) for s in l]
+            design_points.append(l)
+    return design_points
+
+def run_single_design_point(design_point):
     design_point = [int(s) for s in design_point]
     core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = design_point
     config = WaferConfig(
@@ -26,7 +35,7 @@ def run_single_design_point(design_point, run_timeloop=False):
         wafer_mem_bw = wafer_mem_bw, 
     )
     try:
-        config.run_focus(benchmark_name, run_timeloop=run_timeloop, verbose=False)
+        config.run(run_timeloop=False)
     except:
         print(f"Error: {design_point}")
         return
@@ -76,7 +85,8 @@ class WaferSearchSpace():
 
     def __init__(self, design_points):
         self.total_design_points = len(design_points)
-        self.design_point_cluster = self._cluster_arch_config(design_points)
+        self.design_points = design_points
+        # self.design_point_cluster = self._cluster_arch_config(design_points)
 
     def _cluster_arch_config(self, design_points):
         cluster = dict()
@@ -89,23 +99,14 @@ class WaferSearchSpace():
 
     def run(self):
         print(f"total design points: {self.total_design_points}")
-        print(f"number of clusters: {len(self.design_point_cluster)}")
+        # print(f"number of clusters: {len(self.design_point_cluster)}")
 
-        for key, cluster in self.design_point_cluster.items():
-            print(f"Warm up: {key}")
-            warm_up(cluster)
-
-            with Pool(processes=16) as pool:
-                pool.map(run_single_design_point, cluster)
+        for dp in self.design_points:
+            print(dp)
+            run_single_design_point(dp)
             
-            print(f"Search space: cluster {key} complete!")
-
 if __name__ == "__main__":
-    design_points = []
-    with open("design_points/design_points_203.list", 'r') as f:
-        for line in f:
-            l = line.strip('[]\n').split(',')
-            l = [float(s) for s in l]
-            design_points.append(l)
+    list_path = os.path.join(gc.dse_root, "design_points/design_points_203.list")
+    design_points = parse_design_point_list(list_path)
     search_space = WaferSearchSpace(design_points)
     search_space.run()

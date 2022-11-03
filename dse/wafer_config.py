@@ -9,7 +9,7 @@ import multiprocessing as mp
 
 from noc_spec import NoCSpec
 import dse_global_control as gc
-from sp_runner import run_focus, run_timeloop_mapper
+from sp_runner import run_focus, run_timeloop_mapper, run_timeloop_model
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,10 +45,9 @@ class WaferConfig():
 
         self.task_root = os.path.join(gc.task_root, self._get_config_briefing())
 
-    def run(self, run_timeloop=True):
+    def run(self, invoke_timeloop_mapper, invoke_timeloop_model):
         """Run focus toolchain
         """
-        #TODO: benchmark: default is all benchmarks, but could specify one task
         task_root = os.path.join(gc.task_root, self._get_config_briefing())
         if not os.path.exists(task_root):
             os.mkdir(task_root)
@@ -56,7 +55,7 @@ class WaferConfig():
         # dump all benchmarks to task_root/benchmark/xxx.yaml
         self._dump_benchmark()
 
-        if run_timeloop:
+        if invoke_timeloop_mapper:
             self._dump_arch_config()
             self._dump_constraints_config()
             self._dump_modified_arch_config()
@@ -65,6 +64,13 @@ class WaferConfig():
                 layers = [os.path.join(layers_root, l) for l in dirs]
                 with mp.Pool(processes=4) as pool:  # this is much faster
                     pool.map(run_timeloop_mapper, layers)
+                break
+        
+        if invoke_timeloop_model:
+            for layers_root, dirs, files in os.walk(os.path.join(task_root, "layers")):
+                layers = [os.path.join(layers_root, l) for l in dirs]
+                with mp.Pool(processes=32) as pool:
+                    pool.map(run_timeloop_model, layers)
                 break
 
         self.predict_perf()
@@ -362,10 +368,10 @@ class WaferConfig():
                 for layer_dir in layer_dirs:
                     os.system(f"cp -r {os.path.join(self.task_root, 'layers', layer_dir)} {os.path.join(gc.focus_root, 'buffer', 'timeloop-512g', layer_dir)}") 
 
-                mode = "ed"  # communication still use FOCUS'
+                mode = "d"  # communication still use FOCUS'
                 core_array_size = max(self.core_array_h, self.core_array_w)
                 flit_size = self.core_noc_bw
-                run_focus(benchmark_path, core_array_size, flit_size, mode, verbose=True, debug=True, timeout=300)
+                run_focus(benchmark_path, core_array_size, flit_size, mode, verbose=False, debug=False, timeout=600)
 
                 taskname = f"{benchmark_name}_b1w{flit_size}_{core_array_size}x{core_array_size}"
                 graph_path = gc.get_op_graph_path(taskname)
@@ -419,4 +425,4 @@ if __name__ == "__main__":
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run(run_timeloop=False)
+    wafer_config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=True)
