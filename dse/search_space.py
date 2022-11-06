@@ -85,6 +85,7 @@ class WaferSearchSpace():
 
         if predict:
             for dp in self.design_points:
+                #TODO: check prediction root, compare len with benchmark root
                 if verbose: print(f"Running prediction for {dp}")
                 core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = [int(s) for s in dp]
                 config = WaferConfig(
@@ -116,4 +117,4 @@ if __name__ == "__main__":
     list_path = os.path.join(gc.dse_root, "design_points/design_points_203.list")
     design_points = parse_design_point_list(list_path)
     search_space = WaferSearchSpace(design_points, )
-    search_space.run(dump_config_spec=False, invoke_timeloop_mapper=False, invoke_timeloop_model=False, predict=True, verbose=True, debug=True)
+    search_space.run(dump_config_spec=False, invoke_timeloop_mapper=False, invoke_timeloop_model=False, predict=True, verbose=True, debug=False)

@@ -3,6 +3,8 @@ import numpy as np
 import json
 import dse_global_control as gc
 import matplotlib.pyplot as plt
+from search_space import parse_design_point_list
+import traceback
 
 class ResultAnalyzer():
 
@@ -46,7 +48,7 @@ class ResultAnalyzer():
             
         return cur_cluster
 
-    def _init_perfs(self, benchmark='gpt2-xl_tiny'):
+    def _init_perfs(self, benchmark='gpt2-xl-tiny'):
         perfs = {k: dict() for k in self.design_points}  # dp: {layer: latency}
 
         for dp in self.design_points:
@@ -67,13 +69,18 @@ class ResultAnalyzer():
                 ('wmbw', wafer_mem_bw),
             ]
             briefing = "_".join([f"{k}{v}" for k, v in config_briefs])
-            task_root = benchmark + "_" + briefing
+            task_root = briefing
 
-            for root, _, files in os.walk(os.path.join(gc.task_root, task_root, "benchmark")):
+            benchmark_root = os.path.join(gc.task_root, task_root, "benchmark")
+            assert os.path.exists(benchmark_root), f"{benchmark_root} not exists!"
+            for _, _, files in os.walk(benchmark_root):
                 for file in files:
+                    if benchmark not in file:  continue
                     try:
                         cur_benchmark_name = file[:-5] + "_" + briefing + ".json"
-                        with open(os.path.join(gc.task_root, task_root, "prediction", cur_benchmark_name), 'r') as f:
+                        prediction_path = os.path.join(gc.task_root, task_root, "prediction", cur_benchmark_name)
+                        assert os.path.exists(prediction_path), f"{prediction_path} does not exists!"
+                        with open(prediction_path, 'r') as f:
                             a = json.load(f)
                             # aggregate each layer minimum latency
                             for k, v in a.items():
@@ -82,18 +89,24 @@ class ResultAnalyzer():
                                 else:
                                     perfs[dp][k] = v
                     except:
+                        # FIXME: just let you know you need to fix some timeloop results
+                        # print(f"Info: Error in loading prediction result of {dp}")
+                        perfs.pop(dp)
                         continue
+                break
 
         return perfs
 
-    def plot_cluster(self, cluster_columns: list, fixed_columns: dict, benchmark='gpt2-xl_tiny', agg='min'):
+    def plot_cluster(self, cluster_columns: list, fixed_columns: dict, benchmark='gpt2-xl-tiny', agg='min'):
         cluster = self._cluster_design_points(cluster_columns, fixed_columns)
         perfs = self._init_perfs(benchmark)
         index_to_agg_perf = dict()
 
         for index, cur_cluster in cluster.items():
             # dp: total_latency
-            cur_perfs = [np.sum(list(perfs[c].values())) for c in cur_cluster]
+            cur_perfs = [np.sum(list(perfs[c].values())) for c in cur_cluster if c in perfs.keys()]
+            if len(cur_perfs) == 0 and len(cluster_columns) == 2:
+                cur_perfs.append(-1)  # padding 
             if agg == 'min':
                 cur_agg_perf = np.min(cur_perfs)
             elif agg == 'max':
@@ -124,7 +137,7 @@ class ResultAnalyzer():
             ax = plt.axes(projection='3d')
             # ax.scatter(x, y, z, cmap='viridis')
             ax.bar3d(x, y, 0, 0.25, 0.25, z, shade=1)
-            ax.view_init(elev=33, azim=74)
+            ax.view_init(elev=33, azim=66)
             ax.set_xlabel(f"{cluster_columns[0]} (log)")
             ax.set_ylabel(f"{cluster_columns[1]} (log)")
 
@@ -143,28 +156,49 @@ class ResultAnalyzer():
 
 
 if __name__ == "__main__":
-    design_points = []
-    with open("design_points/design_points_203.list", 'r') as f:
-        for line in f:
-            l = line.strip('[]\n').split(',')
-            l = [float(s) for s in l]
-            design_points.append(tuple(l))
-
+    design_points = parse_design_point_list(os.path.join(gc.dse_root, "design_points/design_points_203.list"))
+    design_points = [tuple(i) for i in design_points]
     analyzer = ResultAnalyzer(design_points)
  
-    # for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
-    #     cluster_columns = [prop]
-    #     fixed_columns = dict()
-    #     analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min')
-    #     analyzer.plot_cluster(cluster_columns, fixed_columns, agg='max')
-    #     analyzer.plot_cluster(cluster_columns, fixed_columns, agg='mean')
+    # single variable, other variable choose the best setting
+    for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
+        cluster_columns = [prop]
+        fixed_columns = dict()
+        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl-tiny")
+        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="dall-e-128")
 
-    for core_buffer_bw in 2 ** np.arange(5, 12):
-        for core_buffer_size in 2 ** np.arange(5, 12):
-            cluster_columns = ['core_noc_bw']
-            fixed_columns = {'core_buffer_size': core_buffer_size}
-            try:
-                analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
-            except:
-                print(f"error: {cluster_columns} {fixed_columns}")
-                continue
+    # for fixed buffer size, perf <- mac and noc?
+    for core_buffer_size in 2 ** np.arange(5, 12):
+        cluster_columns = [
+            'core_num_mac',
+            'core_noc_bw',
+        ]
+        fixed_columns = {
+            'core_buffer_size': core_buffer_size,
+            # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
+        }
+        try:
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl-tiny')
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
+        except:
+            print(f"error: {cluster_columns} {fixed_columns}")
+            traceback.print_exc()
+            continue
+
+    # for fixed noc, perf <- mac and buf?
+    for core_noc_bw in 2 ** np.arange(5, 15):
+        cluster_columns = [
+            'core_num_mac',
+            'core_buffer_size',
+        ]
+        fixed_columns = {
+            'core_noc_bw': core_noc_bw,
+            # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
+        }
+        try:
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl-tiny')
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
+        except:
+            print(f"error: {cluster_columns} {fixed_columns}")
+            traceback.print_exc()
+            continue
