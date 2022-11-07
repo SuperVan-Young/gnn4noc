@@ -30,7 +30,7 @@ def run_focus(benchmark_path, array_size, flit_size, mode, verbose=False, debug=
     end_time = time.time()
     print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
 
-def run_timeloop_mapper(layer_root, verbose=True, timeout=1):
+def run_timeloop_mapper(layer_root, verbose=True, timeout=3):
     """ layer root has prepared:
     - top level arch spec (fetch component spec from FOCUS)
     - constraint spec
@@ -81,7 +81,7 @@ def run_timeloop_mapper(layer_root, verbose=True, timeout=1):
     sp.wait()
 
     end_time = time.time()
-    if verbose: print(f"Info: Mapper search complete in {end_time - begin_time} seconds.")
+    if verbose: print(f"Info: {layer_root} Mapper search complete in {end_time - begin_time} seconds.")
 
 def run_timeloop_model(layer_root, verbose=True):
     """Run timeloop model, prepare for communication status. 
@@ -132,4 +132,4 @@ def run_timeloop_model(layer_root, verbose=True):
     model_sp.wait()
     end_time = time.time()
 
-    if verbose: print(f"Info: Communication status extraction finished in {end_time - begin_time} seconds")
+    if verbose: print(f"Info: {layer_root} timeloop model finished in {end_time - begin_time} seconds")

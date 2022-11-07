@@ -248,6 +248,17 @@ class LinearProgrammingPredictor():
 
         return predicted_latency
 
+    def get_theoretical_latency(self, layer_name=None):
+        G = self.trace_parser.graph_parser.get_graph(layer_name, batch=0)
+        
+        latency = 0
+        for u, attr in G.nodes(data=True):
+            if attr['op_type'] != 'sink':
+                latency = attr['delay'] * attr['cnt']
+            break
+        return latency
+
+
 def test_fake_layers():
     agent = FocusAgent(fake_trace=True, simulate=True)
 

@@ -45,7 +45,7 @@ class WaferConfig():
 
         self.task_root = os.path.join(gc.task_root, self._get_config_briefing())
 
-    def run(self, invoke_timeloop_mapper, invoke_timeloop_model, predict, verbose=False):
+    def run(self, invoke_timeloop_mapper, invoke_timeloop_model, invoke_focus, predict, verbose=False):
         """Run focus toolchain
         """
         task_root = os.path.join(gc.task_root, self._get_config_briefing())
@@ -79,7 +79,7 @@ class WaferConfig():
 
         if predict:
             if verbose: print(f"{self._get_config_briefing()}: Predicting performance")
-            self.predict_perf()
+            self.predict_perf(invoke_focus)
             if verbose: print(f"{self._get_config_briefing()}: Finish predicting performance")
 
     def _get_config_briefing(self):
@@ -111,6 +111,8 @@ class WaferConfig():
         for benchmark_bu_root, dirs, files in os.walk(os.path.join(gc.dse_root, "benchmark")):
             for file in files:
                 benchmark_bu_path = os.path.join(benchmark_bu_root, file)
+                benchmark_constraint_path = os.path.join(os.path.join(gc.dse_root, "benchmark_constraint", file))
+                assert os.path.exists(benchmark_constraint_path), f"Benchmark constraint {benchmark_constraint_path} should exist!"
 
                 with open(benchmark_bu_path, 'r') as f:
                     benchmark_bu = yaml.load(f, Loader=yaml.FullLoader)
@@ -122,12 +124,22 @@ class WaferConfig():
                 get_layer_num_core = lambda x: list(x.values())[0]
 
                 # core factor
-                available_core_num = self.core_array_h * self.core_array_w
+                available_core_num = self.core_array_h * self.core_array_w * self.reticle_array_h * self.reticle_array_w
                 demanding_core_num = np.sum([get_layer_num_core(l) for l in benchmark_bu_layers])
                 core_factor = available_core_num / demanding_core_num
 
                 new_benchmark_name = f"{benchmark_bu_name}_{self._get_config_briefing()}"
-                new_benchmark_config = [{get_layer_name(l): max(int(get_layer_num_core(l) * core_factor), 2)} for l in benchmark_bu_layers]
+                new_benchmark_config = [{get_layer_name(l): min(max(int(get_layer_num_core(l) * core_factor), 2), self.core_array_h * self.core_array_w)} for l in benchmark_bu_layers]
+
+                # delete layers not in constraint
+                with open(benchmark_constraint_path, "r") as f:
+                    benchmark_constraint = yaml.load(f, Loader=yaml.FullLoader)
+                assert len(benchmark_constraint) == 1, "WaferConfig: benchmark constraint multi model!"
+                for k, v in benchmark_constraint.items():
+                    benchmark_constraint = v
+                    break
+                new_benchmark_config = [l for l in new_benchmark_config if get_layer_name(l) in benchmark_constraint]
+
                 new_benchmark = {new_benchmark_name : new_benchmark_config}
 
                 benchmark_path = os.path.join(benchmark_root, file)
@@ -195,7 +207,8 @@ class WaferConfig():
             yaml.dump(arch_config, f)
 
     def _dump_constraints_config(self, verbose=False):
-        """Add constraints for faster timeloop searching"""
+        """Add constraints for faster timeloop searching
+        Cannot assure a valid mapping. FXXK TIMELOOP"""
 
         def get_max_factor(num, bound):
             """Return maximum i, s.t. num % i == 0, i <= bound
@@ -351,7 +364,7 @@ class WaferConfig():
                     yaml.dump(arch, f)
 
 
-    def predict_perf(self):
+    def predict_perf(self, invoke_focus):
         os.system(f"cp {os.path.join(self.task_root, 'arch', 'cerebras_like.yaml')} {os.path.join(gc.database_root, 'arch')}")
         prediction_root = os.path.join(self.task_root, "prediction")
         if not os.path.exists(prediction_root):
@@ -380,9 +393,9 @@ class WaferConfig():
                     os.system(f"cp -r {src_dir} {dst_dir}") 
 
                 mode = "d"  # communication still use FOCUS'
-                core_array_size = max(self.core_array_h, self.core_array_w)
+                core_array_size = max(self.core_array_h, self.core_array_w) * max(self.reticle_array_h, self.reticle_array_w)
                 flit_size = self.core_noc_bw
-                run_focus(benchmark_path, core_array_size, flit_size, mode, verbose=False, debug=False, timeout=600)
+                if invoke_focus: run_focus(benchmark_path, core_array_size, flit_size, mode, verbose=False, debug=False, timeout=600)
 
                 taskname = f"{benchmark_name}_b1w{flit_size}_{core_array_size}x{core_array_size}"
                 graph_path = gc.get_op_graph_path(taskname)
@@ -406,12 +419,16 @@ class WaferConfig():
                     reticle_array_w=1,
                     inter_reticle_bw=self.reticle_bw,
                     inter_core_bw=self.core_noc_bw,
-                )
+                )  # useless for now
 
-                predictor = LinearProgrammingPredictor(trace_parser, noc_spec)
-                latencies = dict()
+                predictor = LinearProgrammingPredictor(trace_parser, None)
+                latencies = {
+                    "prediction": [],
+                    "theoretical": [],
+                }
                 for layer_name in trace_parser.graph_parser.get_layers():
-                    latencies[layer_name] = int(predictor.run(layer_name))
+                    latencies["prediction"][layer_name] = int(predictor.run(layer_name))
+                    latencies["theoretical"][layer_name] = int(predictor.get_theoretical_latency(layer_name))
 
                 prediction_path = os.path.join(prediction_root, f"{benchmark_name}.json")
                 with open(prediction_path, "w") as f:
@@ -436,4 +453,4 @@ if __name__ == "__main__":
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run(invoke_timeloop_mapper=True, invoke_timeloop_model=True, predict=True, verbose=True)
+    wafer_config.run(invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True)
