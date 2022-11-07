@@ -34,6 +34,17 @@ def run_dump_config_spec(dp):
     config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=False, predict=False)
     return
 
+def run_config(config, verbose=True, debug=False):
+    try:
+        config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=True, predict=True)
+    except:
+        if verbose: print(f"Error: predictor {config._get_config_briefing()}")
+        if debug:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_traceback, limit=None, file=sys.stderr)
+            return
+    if verbose: print(f"Success: predictor {config._get_config_briefing()}")
+
 class WaferSearchSpace():
 
     def __init__(self, design_points, ):
@@ -84,9 +95,9 @@ class WaferSearchSpace():
                 pool.map(run_timeloop_model, layer_roots)
 
         if predict:
+            dp_predict = []
             for dp in self.design_points:
                 #TODO: check prediction root, compare len with benchmark root
-                if verbose: print(f"Running prediction for {dp}")
                 core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = [int(s) for s in dp]
                 config = WaferConfig(
                     core_num_mac = core_num_mac, 
@@ -102,19 +113,22 @@ class WaferSearchSpace():
                     reticle_array_w = reticle_array_w, 
                     wafer_mem_bw = wafer_mem_bw, 
                 )
-                try:
-                    config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=invoke_focus, predict=True)
-                except:
-                    if verbose: print(f"Error: predictor {dp}")
-                    if debug:
-                        exc_type, exc_value, exc_traceback = sys.exc_info()
-                        traceback.print_exception(exc_type, exc_value, exc_traceback, limit=None, file=sys.stderr)
-                        return
+                layer_root = config._get_config_briefing()
+                prediction_root = os.path.join(gc.task_root, layer_root, "prediction")
+                if not os.path.exists(prediction_root):
+                    dp_predict.append(config)
                     continue
-                if verbose: print(f"Success: predictor {dp}")
+                for _, __, files in os.walk(prediction_root):
+                    if len(files) == 2: continue
+                dp_predict.append(config)
+            
+            print(f"Predict: {len(dp_predict)}")
+
+            with Pool(processes=28) as pool:
+                pool.map(run_config, dp_predict)
             
 if __name__ == "__main__":
     list_path = os.path.join(gc.dse_root, "design_points/design_points_dojo.list")
     design_points = parse_design_point_list(list_path)
     search_space = WaferSearchSpace(design_points, )
-    search_space.run(dump_config_spec=False, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True, debug=True) 
+    search_space.run(dump_config_spec=False, invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=True, predict=True, verbose=True, debug=True) 

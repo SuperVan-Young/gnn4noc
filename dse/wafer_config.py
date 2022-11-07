@@ -393,7 +393,8 @@ class WaferConfig():
                     os.system(f"cp -r {src_dir} {dst_dir}") 
 
                 mode = "d"  # communication still use FOCUS'
-                core_array_size = max(self.core_array_h, self.core_array_w) * max(self.reticle_array_h, self.reticle_array_w)
+                # core_array_size = max(self.core_array_h, self.core_array_w) * max(self.reticle_array_h, self.reticle_array_w)
+                core_array_size = int(np.sqrt(np.sum([get_layer_num_core(l) for l in benchmark_layers]))) + 2
                 flit_size = self.core_noc_bw
                 if invoke_focus: run_focus(benchmark_path, core_array_size, flit_size, mode, verbose=False, debug=False, timeout=600)
 
@@ -423,8 +424,8 @@ class WaferConfig():
 
                 predictor = LinearProgrammingPredictor(trace_parser, None)
                 latencies = {
-                    "prediction": [],
-                    "theoretical": [],
+                    "prediction": {},
+                    "theoretical": {},
                 }
                 for layer_name in trace_parser.graph_parser.get_layers():
                     latencies["prediction"][layer_name] = int(predictor.run(layer_name))
@@ -453,4 +454,4 @@ if __name__ == "__main__":
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run(invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True)
+    wafer_config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=True, predict=True, verbose=True)
