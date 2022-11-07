@@ -131,4 +131,4 @@ if __name__ == "__main__":
     list_path = os.path.join(gc.dse_root, "design_points/design_points_dojo.list")
     design_points = parse_design_point_list(list_path)
     search_space = WaferSearchSpace(design_points, )
-    search_space.run(dump_config_spec=False, invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=True, predict=True, verbose=True, debug=True) 
+    search_space.run(dump_config_spec=False, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=False, verbose=True, debug=True) 

@@ -81,7 +81,7 @@ class ResultAnalyzer():
                         prediction_path = os.path.join(gc.task_root, task_root, "prediction", cur_benchmark_name)
                         assert os.path.exists(prediction_path), f"{prediction_path} does not exists!"
                         with open(prediction_path, 'r') as f:
-                            a = json.load(f)
+                            a = json.load(f)['prediction']
                             # aggregate each layer minimum latency
                             for k, v in a.items():
                                 if k in perfs[dp].keys():
@@ -162,9 +162,9 @@ if __name__ == "__main__":
  
     # single variable, other variable choose the best setting
     for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
-        cluster_columns = [prop]
+        cluster_columns = [prop]7
         fixed_columns = dict()
-        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl-tiny")
+        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl")
         analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="dall-e-128")
 
     # for fixed buffer size, perf <- mac and noc?
@@ -178,7 +178,7 @@ if __name__ == "__main__":
             # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
         }
         try:
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl-tiny')
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl')
             analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
@@ -196,7 +196,7 @@ if __name__ == "__main__":
             # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
         }
         try:
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl-tiny')
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl')
             analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
