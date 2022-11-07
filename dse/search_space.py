@@ -124,11 +124,14 @@ class WaferSearchSpace():
             
             print(f"Predict: {len(dp_predict)}")
 
-            with Pool(processes=28) as pool:
-                pool.map(run_config, dp_predict)
+            for dp in dp_predict:
+                run_config(dp)
+            # cannot run parallel!
+            # with Pool(processes=28) as pool:
+                # pool.map(run_config, dp_predict)
             
 if __name__ == "__main__":
-    list_path = os.path.join(gc.dse_root, "design_points/design_points_dojo.list")
+    list_path = os.path.join(gc.dse_root, "design_points/design_points_2.list")
     design_points = parse_design_point_list(list_path)
     search_space = WaferSearchSpace(design_points, )
-    search_space.run(dump_config_spec=False, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=False, verbose=True, debug=True) 
+    search_space.run(dump_config_spec=True, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True, debug=True) 

@@ -81,16 +81,19 @@ class ResultAnalyzer():
                         prediction_path = os.path.join(gc.task_root, task_root, "prediction", cur_benchmark_name)
                         assert os.path.exists(prediction_path), f"{prediction_path} does not exists!"
                         with open(prediction_path, 'r') as f:
-                            a = json.load(f)['prediction']
+                            a = json.load(f)
                             # aggregate each layer minimum latency
-                            for k, v in a.items():
-                                if k in perfs[dp].keys():
-                                    perfs[dp][k] = min(perfs[dp][k], v)
-                                else:
-                                    perfs[dp][k] = v
+                            perfs[dp]['ratio'] = sum([v for v in a['prediction'].values()]) / sum([v for v in a['theoretical'].values()])
+                            # for k, v in a.items():
+                            #     v = v / b[k]
+                            #     if k in perfs[dp].keys():
+                            #         perfs[dp][k] = min(perfs[dp][k], v)
+                            #     else:
+                            #         perfs[dp][k] = v
                     except:
                         # FIXME: just let you know you need to fix some timeloop results
-                        # print(f"Info: Error in loading prediction result of {dp}")
+                        print(f"Info: Error in loading prediction result of {dp}")
+                        traceback.print_exc()
                         perfs.pop(dp)
                         continue
                 break
@@ -104,7 +107,8 @@ class ResultAnalyzer():
 
         for index, cur_cluster in cluster.items():
             # dp: total_latency
-            cur_perfs = [np.sum(list(perfs[c].values())) for c in cur_cluster if c in perfs.keys()]
+            # cur_perfs = [np.sum(list(perfs[c].values())) for c in cur_cluster if c in perfs.keys()]
+            cur_perfs = [perfs[c]['ratio'] for c in cur_cluster if c in perfs.keys()]
             if len(cur_perfs) == 0 and len(cluster_columns) == 2:
                 cur_perfs.append(-1)  # padding 
             if agg == 'min':
@@ -156,16 +160,21 @@ class ResultAnalyzer():
 
 
 if __name__ == "__main__":
-    design_points = parse_design_point_list(os.path.join(gc.dse_root, "design_points/design_points_203.list"))
+    design_points = parse_design_point_list(os.path.join(gc.dse_root, "design_points/design_points_1.list"))
     design_points = [tuple(i) for i in design_points]
     analyzer = ResultAnalyzer(design_points)
  
     # single variable, other variable choose the best setting
     for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
-        cluster_columns = [prop]7
+        cluster_columns = [prop]
         fixed_columns = dict()
-        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl")
-        analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="dall-e-128")
+        try:
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl")
+            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="dall-e-128")
+        except:
+            print(f"error: {cluster_columns} {fixed_columns}")
+            # traceback.print_exc()
+            continue
 
     # for fixed buffer size, perf <- mac and noc?
     for core_buffer_size in 2 ** np.arange(5, 12):
@@ -182,7 +191,7 @@ if __name__ == "__main__":
             analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
-            traceback.print_exc()
+            # traceback.print_exc()
             continue
 
     # for fixed noc, perf <- mac and buf?
@@ -200,5 +209,5 @@ if __name__ == "__main__":
             analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
-            traceback.print_exc()
+            # traceback.print_exc()
             continue

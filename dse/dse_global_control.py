@@ -30,7 +30,7 @@ def get_spec_path(taskname):
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))
 
-experiment_date = '1106'
+experiment_date = '1107'
 
 task_root = os.path.join(dse_root, "tasks")
 if not os.path.exists(task_root):
@@ -45,3 +45,6 @@ if not os.path.exists(fig_root):
 fig_root = os.path.join(fig_root, experiment_date)
 if not os.path.exists(fig_root):
     os.mkdir(fig_root)
+
+# --------------------- control -------------------------
+num_effective_model = 8   # how many model on 1 wafer

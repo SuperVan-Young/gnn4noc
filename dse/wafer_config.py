@@ -127,6 +127,7 @@ class WaferConfig():
                 available_core_num = self.core_array_h * self.core_array_w * self.reticle_array_h * self.reticle_array_w
                 demanding_core_num = np.sum([get_layer_num_core(l) for l in benchmark_bu_layers])
                 core_factor = available_core_num / demanding_core_num
+                core_factor = core_factor / gc.num_effective_model
 
                 new_benchmark_name = f"{benchmark_bu_name}_{self._get_config_briefing()}"
                 new_benchmark_config = [{get_layer_name(l): min(max(int(get_layer_num_core(l) * core_factor), 2), self.core_array_h * self.core_array_w)} for l in benchmark_bu_layers]
@@ -433,14 +434,14 @@ class WaferConfig():
 
                 prediction_path = os.path.join(prediction_root, f"{benchmark_name}.json")
                 with open(prediction_path, "w") as f:
-                    json.dump(latencies, f)
+                    f.write(json.dumps(latencies, indent=4))
             break
 
 if __name__ == "__main__":
     wafer_config = WaferConfig(
-        core_num_mac = 256,
+        core_num_mac = 4,
         core_buffer_bw = 256,
-        core_buffer_size = 1024,
+        core_buffer_size = 128,
 
         core_noc_bw = 1024,
         core_noc_vc = 4,
@@ -454,4 +455,4 @@ if __name__ == "__main__":
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=True, predict=True, verbose=True)
+    wafer_config.run(invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True)

@@ -253,9 +253,8 @@ class LinearProgrammingPredictor():
         
         latency = 0
         for u, attr in G.nodes(data=True):
-            if attr['op_type'] != 'sink':
-                latency = attr['delay'] * attr['cnt']
-            break
+            if attr['op_type'] == 'sink': continue
+            latency = attr['delay'] * attr['cnt']
         return latency
 
 
