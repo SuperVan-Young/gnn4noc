@@ -83,6 +83,8 @@ class ResultAnalyzer():
                         with open(prediction_path, 'r') as f:
                             a = json.load(f)
                             # aggregate each layer minimum latency
+                            # perfs[dp]['absolute'] = np.log2(sum([v for v in a['prediction'].values()]))
+                            perfs[dp]['absolute'] = sum([v for v in a['prediction'].values()])
                             perfs[dp]['ratio'] = sum([v for v in a['prediction'].values()]) / sum([v for v in a['theoretical'].values()])
                             # for k, v in a.items():
                             #     v = v / b[k]
@@ -108,7 +110,8 @@ class ResultAnalyzer():
         for index, cur_cluster in cluster.items():
             # dp: total_latency
             # cur_perfs = [np.sum(list(perfs[c].values())) for c in cur_cluster if c in perfs.keys()]
-            cur_perfs = [perfs[c]['ratio'] for c in cur_cluster if c in perfs.keys()]
+            # cur_perfs = [perfs[c]['ratio'] for c in cur_cluster if c in perfs.keys()]
+            cur_perfs = [perfs[c]['absolute'] for c in cur_cluster if c in perfs.keys()]
             if len(cur_perfs) == 0 and len(cluster_columns) == 2:
                 cur_perfs.append(-1)  # padding 
             if agg == 'min':
@@ -135,6 +138,8 @@ class ResultAnalyzer():
             x = np.log2([k[0] for k in xy])
             y = np.log2([k[1] for k in xy])
             z = np.array(list(index_to_agg_perf.values()))
+            # z = z - z.min()
+            # z = z / z.max() # normalize
             # print(xy)
             # print(z.shape)
 
@@ -160,10 +165,10 @@ class ResultAnalyzer():
 
 
 if __name__ == "__main__":
-    design_points = parse_design_point_list(os.path.join(gc.dse_root, "design_points/design_points_1.list"))
+    design_points = parse_design_point_list(os.path.join(gc.dse_root, "design_points/design_points_2.list"))
     design_points = [tuple(i) for i in design_points]
     analyzer = ResultAnalyzer(design_points)
- 
+    
     # single variable, other variable choose the best setting
     for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
         cluster_columns = [prop]
@@ -193,6 +198,25 @@ if __name__ == "__main__":
             print(f"error: {cluster_columns} {fixed_columns}")
             # traceback.print_exc()
             continue
+
+    # for fixed buffer size, perf <- mac and noc?
+    for core_noc_bw in 2 ** np.arange(5, 12):
+        for core_buffer_size in 2 ** np.arange(5, 12):
+            cluster_columns = [
+                'core_num_mac',
+            ]
+            fixed_columns = {
+                'core_noc_bw': core_noc_bw, 
+                'core_buffer_size': core_buffer_size,
+                # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
+            }
+            try:
+                analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl')
+                analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
+            except:
+                print(f"error: {cluster_columns} {fixed_columns}")
+                # traceback.print_exc()
+                continue
 
     # for fixed noc, perf <- mac and buf?
     for core_noc_bw in 2 ** np.arange(5, 15):

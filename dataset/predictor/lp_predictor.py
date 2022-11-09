@@ -257,6 +257,40 @@ class LinearProgrammingPredictor():
             latency = attr['delay'] * attr['cnt']
         return latency
 
+    def get_data_transmission(self, layer_name=None):
+        G = self.trace_parser.graph_parser.get_graph(layer_name, batch=0)
+        srcs_info = {
+            'wsrc': {
+                'flit': 0,
+                'unicast': 0,  # multicast pid only count once
+                'cnt': 0,
+                'total': 0,
+            },
+            "insrc": {
+                'flit': 0,
+                'unicast': 0,
+                'cnt': 0,
+                'total': 0,
+            }
+        }  # wsrc/insrc: flit, cnt, total
+        finished_pids = set()
+
+        for u, v, eattr in G.edges(data=True):
+            if eattr['edge_type'] != 'data' or len(eattr['pkt']) == 0:
+                continue
+            src_type = G.nodes[u]['op_type']
+            if src_type != 'wsrc' and src_type != 'insrc': continue
+            pid = eattr['pkt'][0]
+            if pid in finished_pids: continue
+            finished_pids.add(pid)
+            srcs_info[src_type]['flit'] = eattr['size']
+            srcs_info[src_type]['cnt'] = max(G.nodes[u]['cnt'], srcs_info[src_type]['cnt'])
+            srcs_info[src_type]['unicast'] += 1
+        
+        for src_type in ['wsrc', 'insrc']:
+            srcs_info[src_type]['total'] = srcs_info[src_type]['flit'] * srcs_info[src_type]['unicast'] * srcs_info[src_type]['cnt']
+        return srcs_info
+
 
 def test_fake_layers():
     agent = FocusAgent(fake_trace=True, simulate=True)

@@ -7,11 +7,11 @@ import dse_global_control as gc
 from compiler.timeloop_agents.loop2map import Loop2Map
 
 
-def run_focus(benchmark_path, array_size, flit_size, mode, verbose=False, debug=False, timeout=600):
+def run_focus(benchmark_path, array_size, flit_size, mode, timeloop_buffer_path, verbose=False, debug=False, timeout=600):
     executable = os.path.join(gc.focus_root, "focus.py")
 
     command = f"python {executable} -bm {benchmark_path} -d {array_size} -b 1 \
-                -fr {flit_size}-{flit_size}-{flit_size} {mode}" \
+                -fr {flit_size}-{flit_size}-{flit_size} -tlb {timeloop_buffer_path} {mode}" \
                 + (" -debug" if debug else "")
 
     begin_time = time.time()
@@ -30,7 +30,7 @@ def run_focus(benchmark_path, array_size, flit_size, mode, verbose=False, debug=
     end_time = time.time()
     print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
 
-def run_timeloop_mapper(layer_root, verbose=True, timeout=3):
+def run_timeloop_mapper(layer_root, verbose=True, timeout=15):
     """ layer root has prepared:
     - top level arch spec (fetch component spec from FOCUS)
     - constraint spec

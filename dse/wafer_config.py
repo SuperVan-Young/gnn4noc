@@ -45,7 +45,7 @@ class WaferConfig():
 
         self.task_root = os.path.join(gc.task_root, self._get_config_briefing())
 
-    def run(self, invoke_timeloop_mapper, invoke_timeloop_model, invoke_focus, predict, verbose=False):
+    def run(self, dump_benchmark, invoke_timeloop_mapper, invoke_timeloop_model, invoke_focus, predict, verbose=False):
         """Run focus toolchain
         """
         task_root = os.path.join(gc.task_root, self._get_config_briefing())
@@ -53,10 +53,11 @@ class WaferConfig():
             os.mkdir(task_root)
 
         # dump all necessary configuration specs
-        self._dump_benchmark()
-        self._dump_arch_config()
-        self._dump_constraints_config()
-        self._dump_modified_arch_config()
+        if dump_benchmark:
+            self._dump_benchmark()
+            self._dump_arch_config()
+            self._dump_constraints_config()
+            self._dump_modified_arch_config()
 
         if invoke_timeloop_mapper:
             if verbose: print(f"{self._get_config_briefing()}: Running timeloop mapper")
@@ -366,7 +367,6 @@ class WaferConfig():
 
 
     def predict_perf(self, invoke_focus):
-        os.system(f"cp {os.path.join(self.task_root, 'arch', 'cerebras_like.yaml')} {os.path.join(gc.database_root, 'arch')}")
         prediction_root = os.path.join(self.task_root, "prediction")
         if not os.path.exists(prediction_root):
             os.mkdir(prediction_root)
@@ -384,21 +384,24 @@ class WaferConfig():
                 get_layer_name = lambda x: list(x.keys())[0]
                 get_layer_num_core = lambda x: list(x.values())[0]
 
-                # copy timeloop mapper results to FOCUS dir``
-                layer_dirs = [f"{get_layer_name(l)}_{get_layer_num_core(l)}" for l in benchmark_layers]
-                for layer_dir in layer_dirs:
-                    src_dir = os.path.join(self.task_root, 'layers', layer_dir)
-                    dst_dir = os.path.join(gc.focus_root, 'buffer', 'timeloop-512g', layer_dir)
-                    if os.path.exists(dst_dir):
-                        os.system(f"rm -r {dst_dir}")
-                    os.system(f"cp -r {src_dir} {dst_dir}") 
+                # needless to copy
+                # # copy timeloop mapper results to FOCUS dir``
+                # layer_dirs = [f"{get_layer_name(l)}_{get_layer_num_core(l)}" for l in benchmark_layers]
+                # for layer_dir in layer_dirs:
+                #     src_dir = os.path.join(self.task_root, 'layers', layer_dir)
+                #     dst_dir = os.path.join(gc.focus_root, 'buffer', 'timeloop-512g', layer_dir)
+                #     if os.path.exists(dst_dir):
+                #         os.system(f"rm -r {dst_dir}")
+                #     os.system(f"cp -r {src_dir} {dst_dir}") 
 
                 mode = "d"  # communication still use FOCUS'
                 # core_array_size = max(self.core_array_h, self.core_array_w) * max(self.reticle_array_h, self.reticle_array_w)
-                core_array_size = int(np.sqrt(np.sum([get_layer_num_core(l) for l in benchmark_layers]))) + 2
+                core_array_size = int(np.sqrt(np.sum([get_layer_num_core(l) for l in benchmark_layers]))) + 2  # eee, cannot run too big
                 flit_size = self.core_noc_bw
-                if invoke_focus: run_focus(benchmark_path, core_array_size, flit_size, mode, verbose=False, debug=False, timeout=600)
+                timeloop_buffer_path = os.path.join(self.task_root, "layers")
+                if invoke_focus: run_focus(benchmark_path, core_array_size, flit_size, mode, timeloop_buffer_path, verbose=False, debug=False, timeout=600)
 
+                # trace parser
                 taskname = f"{benchmark_name}_b1w{flit_size}_{core_array_size}x{core_array_size}"
                 graph_path = gc.get_op_graph_path(taskname)
                 routing_path = gc.get_routing_path(taskname)
@@ -427,10 +430,12 @@ class WaferConfig():
                 latencies = {
                     "prediction": {},
                     "theoretical": {},
+                    "transmission": {},
                 }
                 for layer_name in trace_parser.graph_parser.get_layers():
                     latencies["prediction"][layer_name] = int(predictor.run(layer_name))
                     latencies["theoretical"][layer_name] = int(predictor.get_theoretical_latency(layer_name))
+                    latencies['transmission'][layer_name] = predictor.get_data_transmission(layer_name)
 
                 prediction_path = os.path.join(prediction_root, f"{benchmark_name}.json")
                 with open(prediction_path, "w") as f:
@@ -439,20 +444,20 @@ class WaferConfig():
 
 if __name__ == "__main__":
     wafer_config = WaferConfig(
-        core_num_mac = 4,
-        core_buffer_bw = 256,
+        core_num_mac = 64,
+        core_buffer_bw = 2048,
         core_buffer_size = 128,
 
-        core_noc_bw = 1024,
+        core_noc_bw = 128,
         core_noc_vc = 4,
         core_noc_buffer_size = 2,
-        core_array_h = 100,
-        core_array_w = 100,
+        core_array_h = 45,
+        core_array_w = 32,
 
         reticle_bw = 1024,
-        reticle_array_h = 4, 
-        reticle_array_w = 4,
+        reticle_array_h = 7, 
+        reticle_array_w = 8,
 
         wafer_mem_bw = 4096, # testing!
     )
-    wafer_config.run(invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True)
+    wafer_config.run(dump_benchmark=True, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True)

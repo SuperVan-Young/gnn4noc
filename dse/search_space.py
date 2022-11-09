@@ -31,12 +31,23 @@ def run_dump_config_spec(dp):
         reticle_array_w = reticle_array_w, 
         wafer_mem_bw = wafer_mem_bw, 
     )
-    config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=False, predict=False)
+    config.run(dump_benchmark=True, invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=False, predict=False)
     return
 
-def run_config(config, verbose=True, debug=False):
+def run_config_with_invoke_focus(config, verbose=True, debug=True):
     try:
-        config.run(invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=True, predict=True)
+        config.run(dump_benchmark=False, invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=True, predict=True)
+    except:
+        if verbose: print(f"Error: predictor {config._get_config_briefing()}")
+        if debug:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_traceback, limit=None, file=sys.stderr)
+            return
+    if verbose: print(f"Success: predictor {config._get_config_briefing()}")
+
+def run_config(config, verbose=True, debug=True):
+    try:
+        config.run(dump_benchmark=False, invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=False, predict=True)
     except:
         if verbose: print(f"Error: predictor {config._get_config_briefing()}")
         if debug:
@@ -124,14 +135,23 @@ class WaferSearchSpace():
             
             print(f"Predict: {len(dp_predict)}")
 
-            for dp in dp_predict:
-                run_config(dp)
-            # cannot run parallel!
-            # with Pool(processes=28) as pool:
-                # pool.map(run_config, dp_predict)
+            # for dp in dp_predict:
+            #     run_config(dp)
+            with Pool(processes=28) as pool:
+                if invoke_focus:
+                    pool.map(run_config_with_invoke_focus, dp_predict)
+                else:
+                    pool.map(run_config, dp_predict)
+
             
 if __name__ == "__main__":
     list_path = os.path.join(gc.dse_root, "design_points/design_points_2.list")
     design_points = parse_design_point_list(list_path)
     search_space = WaferSearchSpace(design_points, )
-    search_space.run(dump_config_spec=True, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True, debug=True) 
+    search_space.run(
+        dump_config_spec=True, 
+        invoke_timeloop_mapper=True, 
+        invoke_timeloop_model=True, 
+        invoke_focus=True, 
+        predict=True, 
+        verbose=True, debug=True) 

@@ -30,7 +30,7 @@ def get_spec_path(taskname):
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))
 
-experiment_date = '1107'
+experiment_date = '1109'
 
 task_root = os.path.join(dse_root, "tasks")
 if not os.path.exists(task_root):
