@@ -3,6 +3,7 @@ import numpy as np
 import json
 import dse_global_control as gc
 import matplotlib.pyplot as plt
+import matplotlib
 from search_space import parse_design_point_list
 import traceback
 
@@ -82,73 +83,70 @@ class ResultAnalyzer():
                         assert os.path.exists(prediction_path), f"{prediction_path} does not exists!"
                         with open(prediction_path, 'r') as f:
                             a = json.load(f)
-                            # aggregate each layer minimum latency
-                            # perfs[dp]['absolute'] = np.log2(sum([v for v in a['prediction'].values()]))
-                            perfs[dp]['absolute'] = sum([v for v in a['prediction'].values()])
+                            perfs[dp]['latency'] = sum([v for v in a['prediction'].values()])
                             perfs[dp]['ratio'] = sum([v for v in a['prediction'].values()]) / sum([v for v in a['theoretical'].values()])
-                            # for k, v in a.items():
-                            #     v = v / b[k]
-                            #     if k in perfs[dp].keys():
-                            #         perfs[dp][k] = min(perfs[dp][k], v)
-                            #     else:
-                            #         perfs[dp][k] = v
                     except:
-                        # FIXME: just let you know you need to fix some timeloop results
-                        print(f"Info: Error in loading prediction result of {dp}")
+                        print(f"Warning: Missing files in loading prediction result of {dp}, automatically filling with inf")
                         traceback.print_exc()
-                        perfs.pop(dp)
-                        continue
+                        perfs[dp]['latency'] = np.inf
+                        perfs[dp]['ratio'] = np.inf
                 break
 
         return perfs
 
     def plot_cluster(self, cluster_columns: list, fixed_columns: dict, benchmark='gpt2-xl-tiny', agg='min'):
-        cluster = self._cluster_design_points(cluster_columns, fixed_columns)
-        perfs = self._init_perfs(benchmark)
-        index_to_agg_perf = dict()
+        COMP_BOUND = 1.2  # compuration bound
 
-        for index, cur_cluster in cluster.items():
-            # dp: total_latency
-            # cur_perfs = [np.sum(list(perfs[c].values())) for c in cur_cluster if c in perfs.keys()]
-            # cur_perfs = [perfs[c]['ratio'] for c in cur_cluster if c in perfs.keys()]
-            cur_perfs = [perfs[c]['absolute'] for c in cur_cluster if c in perfs.keys()]
-            if len(cur_perfs) == 0 and len(cluster_columns) == 2:
-                cur_perfs.append(-1)  # padding 
-            if agg == 'min':
-                cur_agg_perf = np.min(cur_perfs)
-            elif agg == 'max':
-                cur_agg_perf = np.max(cur_perfs)
-            elif agg == 'mean':
-                cur_agg_perf = np.mean(cur_perfs)
-            else:
-                raise RuntimeError(f"Invalid agg {agg}")
-            index_to_agg_perf[index] = cur_agg_perf
+        dp_clusters = self._cluster_design_points(cluster_columns, fixed_columns)  # cluster_cols -> dps
+        perfs = self._init_perfs(benchmark)  # dp -> perf_dict
+        index_to_best_dp = dict()  # cluster_cols -> best dp
+
+        # for each cluster, find the best dp according to some metric
+        def get_better_dp(a, b):
+            return a if perfs[a]['latency'] <= perfs[b]['latency'] else b
+
+        for index, dps in dp_clusters.items():
+            best_dp = None
+            for dp in dps:
+                if best_dp is None:
+                    best_dp = dp
+                    continue
+                best_dp = get_better_dp(best_dp, dp)
+            index_to_best_dp[index] = best_dp
 
         dim = len(cluster_columns)
         if dim == 1:
-            x = list(index_to_agg_perf.keys())
-            y = list(index_to_agg_perf.values())
+            x = [k for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf]
+            y = [perfs[v]['latency'] for v in index_to_best_dp.values() if perfs[v]['ratio'] != np.inf]
+            plt.plot(x, y)
 
-            plt.plot(x, y, marker='x')
+            x_c = [k for k, v in index_to_best_dp.items() if perfs[v]['ratio'] <= COMP_BOUND]
+            y_c = [perfs[v]['latency'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] <= COMP_BOUND]
+            x_m = [k for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf]
+            y_m = [perfs[v]['latency'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf]
+            plt.scatter(x_c, y_c, marker='x', color='b', label='computation-bound')
+            plt.scatter(x_m, y_m, marker='x', color='r', label='memory-bound')
             plt.xlabel(cluster_columns[0])
             plt.ylabel('total latency')
+            plt.legend()
 
         elif dim == 2:
-            xy = list(index_to_agg_perf.keys())
-            x = np.log2([k[0] for k in xy])
-            y = np.log2([k[1] for k in xy])
-            z = np.array(list(index_to_agg_perf.values()))
-            # z = z - z.min()
-            # z = z / z.max() # normalize
-            # print(xy)
-            # print(z.shape)
-
             ax = plt.axes(projection='3d')
-            # ax.scatter(x, y, z, cmap='viridis')
-            ax.bar3d(x, y, 0, 0.25, 0.25, z, shade=1)
+
+            x = np.log2([k[0] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
+            y = np.log2([k[1] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
+            z = np.array([perfs[v]['latency'] for v, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
+            c = np.array([perfs[v]['ratio'] for v, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
+            cmap = matplotlib.cm.get_cmap('plasma')
+            norm = matplotlib.colors.Normalize(c.min(), c.max())
+            c = cmap(norm(c.tolist()))
+            if len(z):
+                ax.bar3d(x, y, 0, 0.25, 0.25, z, color=c)
+
             ax.view_init(elev=33, azim=66)
             ax.set_xlabel(f"{cluster_columns[0]} (log)")
             ax.set_ylabel(f"{cluster_columns[1]} (log)")
+            plt.colorbar(matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm))
 
         else:
             raise RuntimeError(f"Invalid dim {dim}")
@@ -196,7 +194,7 @@ if __name__ == "__main__":
             analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
-            # traceback.print_exc()
+            traceback.print_exc()
             continue
 
     # for fixed buffer size, perf <- mac and noc?

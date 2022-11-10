@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 import time
 import multiprocessing as mp
+from itertools import product
 
 from noc_spec import NoCSpec
 import dse_global_control as gc
@@ -212,6 +213,16 @@ class WaferConfig():
         """Add constraints for faster timeloop searching
         Cannot assure a valid mapping. FXXK TIMELOOP"""
 
+        def get_all_subfactors(num):
+            """Get a number's all factors, return a set
+            """
+            res = set()
+            for i in range(1, int(np.ceil(np.sqrt(num)))):
+                if num % i == 0:
+                    res.add(i)
+                    res.add(num // i)
+            return res
+
         def get_max_factor(num, bound):
             """Return maximum i, s.t. num % i == 0, i <= bound
             """
@@ -282,7 +293,7 @@ class WaferConfig():
 
                     if verbose:
                         print(f"layer name: {get_layer_name(l)}")
-                        print(f"Initial C, M, P, Q, R, S = {C}, {M}, {P}, {Q}, {R}, {S}")
+                        print(f"Initial C, M, P, Q = {C}, {M}, {P}, {Q}, {R}, {S}")
 
                     constraint_bu_path = os.path.join(gc.focus_root, "database", "constraints", "simba_constraints_copy.yaml")
                     with open(constraint_bu_path, 'r') as f:
@@ -291,24 +302,22 @@ class WaferConfig():
 
                     # utilize PE first, only unroll C, M
                     num_utilized_mac = get_max_factor(C*M, self.core_num_mac)
+                    pe_factors = [1, 1]
                     if verbose:
                         print(f"utilized mac: {num_utilized_mac} / {self.core_num_mac}")
                     if num_utilized_mac % 2 == 0:
                         num_utilized_mac = num_utilized_mac // 2
                         if C % 2 == 0:
-                            C = C // 2
-                            constraint_targets.append({
-                                'target': 'GlobalBuffer',
-                                'type': 'spatial',
-                                'factors': 'C=2',
-                            })
+                            pe_factors[0] = 2
                         else:
-                            M = M // 2
-                            constraint_targets.append({
-                                'target': 'GlobalBuffer',
-                                'type': 'spatial',
-                                'factors': 'M=2',
-                            })
+                            pe_factors[1] = 2
+                    constraint_targets.append({
+                        'target': 'GlobalBuffer',
+                        'type': 'spatial',
+                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], pe_factors)]),
+                    })
+                    C = C // pe_factors[0]
+                    M = M // pe_factors[1]
 
                     # for mac, first unroll C, then unroll M
                     mac_dims = [C, M]
@@ -322,18 +331,40 @@ class WaferConfig():
                     C = C // mac_factors[0]
                     M = M // mac_factors[1]
 
-                    # utilize all cores, unroll C, M, P, Q, R, S
-                    num_utilized_core = get_max_factor(C*M*P*Q*R*S, num_core)
+                    # utilize all cores, unroll C, M, P, Q
+                    num_utilized_core = get_max_factor(C*M*P*Q, num_core)
                     if verbose:
                         print(f"utilized core: {num_utilized_core} / {num_core}")
-                    core_dims = [C, M, P, Q, R, S]
+                    core_dims = [C, M, P, Q]
                     core_factors = get_unroll_factors(core_dims, num_utilized_core)
                     assert(np.prod(core_factors) == num_utilized_core)
                     constraint_targets.append({
                         'target': 'DRAM',
                         'type': 'spatial',
-                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q', 'R', 'S'], core_factors)]),
+                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q'], core_factors)]),
                     })
+
+                    # for weight buffer, try best to reuse R and S in weight buffer (assume it could fit)
+                    for constraint_ in constraint_targets:
+                        if constraint_['target'] == 'PEWeightBuffer' and constraint_['type'] == 'temporal':
+                            constraint_['factors'] = f"P=1 Q=1 M=1 N=1 R={R} S={S}"
+
+                    # for input, maximize P, Q temporal unrolling in Global Buffer
+                    # Not as easy as finding sub factors
+                    global_buffer_size = self.core_buffer_size * 1024 // 16
+                    weight_size = pe_factors[0] * mac_factors[0] * R * S
+                    P_subfactors = get_all_subfactors(P)
+                    Q_subfactors = get_all_subfactors(Q)
+                    glb_factors = [1, 1]
+                    for p, q in product(P_subfactors, Q_subfactors):
+                        input_size = (p + R - 1) * (q + S - 1) * pe_factors[0] * mac_factors[0]
+                        output_size = p * q * pe_factors[1] * mac_factors[1]
+                        if weight_size + input_size + output_size > global_buffer_size: continue
+                        if p * q > glb_factors[0] * glb_factors[1]:
+                            glb_factors[0], glb_factors[1] = p, q
+                    for constraint_ in constraint_targets:
+                        if constraint_['target'] == 'GlobalBuffer' and constraint_['type'] == 'temporal':
+                            constraint_['factors'] = f"R=1 S=1 P={glb_factors[0]} Q={glb_factors[1]}"
 
                     layer_root = os.path.join(layers_root,  f"{get_layer_name(l)}_{get_layer_num_core(l)}")
                     if not os.path.exists(layer_root):
@@ -344,7 +375,7 @@ class WaferConfig():
                         yaml.dump(constraint, f)
                     
                     if verbose:
-                        print("core factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q', 'R', 'S'], core_factors)]))
+                        print("core factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q'], core_factors)]))
                         print("mac factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], mac_factors)]))
                         print()
 
@@ -444,20 +475,20 @@ class WaferConfig():
 
 if __name__ == "__main__":
     wafer_config = WaferConfig(
-        core_num_mac = 64,
+        core_num_mac = 8,
         core_buffer_bw = 2048,
-        core_buffer_size = 128,
+        core_buffer_size = 512,
 
-        core_noc_bw = 128,
+        core_noc_bw = 2048,
         core_noc_vc = 4,
-        core_noc_buffer_size = 2,
-        core_array_h = 45,
-        core_array_w = 32,
+        core_noc_buffer_size = 4,
+        core_array_h = 20,
+        core_array_w = 25,
 
-        reticle_bw = 1024,
+        reticle_bw = 1,
         reticle_array_h = 7, 
         reticle_array_w = 8,
 
-        wafer_mem_bw = 4096, # testing!
+        wafer_mem_bw = 100, # testing!
     )
     wafer_config.run(dump_benchmark=True, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True)

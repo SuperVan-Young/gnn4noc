@@ -86,7 +86,7 @@ class WaferSearchSpace():
             # some layers cannot give a valid mapping, give it up anyway
             # we say it's a design flaw
             print(f"Timeloop mapper layers: {len(layer_roots)}")
-            with Pool(processes=8) as pool:
+            with Pool(processes=4) as pool:
                 pool.map(run_timeloop_mapper, layer_roots)
 
         if invoke_timeloop_model:
@@ -102,7 +102,7 @@ class WaferSearchSpace():
                 break
 
             print(f"Timeloop model layers: {len(layer_roots)}")
-            with Pool(processes=32) as pool:
+            with Pool(processes=16) as pool:
                 pool.map(run_timeloop_model, layer_roots)
 
         if predict:
@@ -137,7 +137,7 @@ class WaferSearchSpace():
 
             # for dp in dp_predict:
             #     run_config(dp)
-            with Pool(processes=28) as pool:
+            with Pool(processes=16) as pool:
                 if invoke_focus:
                     pool.map(run_config_with_invoke_focus, dp_predict)
                 else:

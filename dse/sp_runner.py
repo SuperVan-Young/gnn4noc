@@ -30,7 +30,7 @@ def run_focus(benchmark_path, array_size, flit_size, mode, timeloop_buffer_path,
     end_time = time.time()
     print(f"Info: running FOCUS complete in {end_time - begin_time} seconds.")
 
-def run_timeloop_mapper(layer_root, verbose=True, timeout=15):
+def run_timeloop_mapper(layer_root, verbose=True):
     """ layer root has prepared:
     - top level arch spec (fetch component spec from FOCUS)
     - constraint spec
@@ -74,7 +74,7 @@ def run_timeloop_mapper(layer_root, verbose=True, timeout=15):
     signal.signal(signal.SIGINT, sigint_handler)
     
     try:
-        sp.wait(timeout=timeout)
+        sp.wait(timeout=gc.timeloop_mapper_timeout)
     except subprocess.TimeoutExpired:
         if verbose: print("Info: Mapper timeout, stop searching now.")
         os.killpg(os.getpgid(sp.pid), signal.SIGINT)
@@ -122,11 +122,8 @@ def run_timeloop_model(layer_root, verbose=True):
 
     begin_time = time.time()
     try:
-        if verbose:
-            model_sp = subprocess.Popen(command, cwd=layer_root, shell=True, env=env)
-        else:
-            model_sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                        cwd=layer_root, shell=True, env=env)
+        model_sp = subprocess.Popen(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    cwd=layer_root, shell=True, env=env)
     except:
         if verbose: print(f"Error in timeloop model")
     model_sp.wait()

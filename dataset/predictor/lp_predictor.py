@@ -271,7 +271,13 @@ class LinearProgrammingPredictor():
                 'unicast': 0,
                 'cnt': 0,
                 'total': 0,
-            }
+            },
+            "worker": {
+                'flit': 0,
+                'unicast': 0,
+                'cnt': 0,
+                'total': 0,
+            },
         }  # wsrc/insrc: flit, cnt, total
         finished_pids = set()
 
@@ -279,7 +285,7 @@ class LinearProgrammingPredictor():
             if eattr['edge_type'] != 'data' or len(eattr['pkt']) == 0:
                 continue
             src_type = G.nodes[u]['op_type']
-            if src_type != 'wsrc' and src_type != 'insrc': continue
+            if src_type != 'wsrc' and src_type != 'insrc' and src_type != 'worker': continue
             pid = eattr['pkt'][0]
             if pid in finished_pids: continue
             finished_pids.add(pid)
@@ -287,7 +293,7 @@ class LinearProgrammingPredictor():
             srcs_info[src_type]['cnt'] = max(G.nodes[u]['cnt'], srcs_info[src_type]['cnt'])
             srcs_info[src_type]['unicast'] += 1
         
-        for src_type in ['wsrc', 'insrc']:
+        for src_type in ['wsrc', 'insrc', 'worker']:
             srcs_info[src_type]['total'] = srcs_info[src_type]['flit'] * srcs_info[src_type]['unicast'] * srcs_info[src_type]['cnt']
         return srcs_info
 
