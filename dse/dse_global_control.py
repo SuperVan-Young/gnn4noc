@@ -47,6 +47,6 @@ if not os.path.exists(fig_root):
     os.mkdir(fig_root)
 
 # --------------------- control -------------------------
-num_effective_model = 8   # how many model on 1 wafer
+num_effective_model = 2   # how many model on 1 wafer
 
 timeloop_mapper_timeout = 3

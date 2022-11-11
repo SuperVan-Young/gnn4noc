@@ -343,11 +343,17 @@ class WaferConfig():
                         'type': 'spatial',
                         'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q'], core_factors)]),
                     })
+                    C = C // core_factors[0]
+                    M = M // core_factors[1]
+                    P = P // core_factors[2]
+                    Q = Q // core_factors[3]
 
                     # for weight buffer, try best to reuse R and S in weight buffer (assume it could fit)
                     for constraint_ in constraint_targets:
                         if constraint_['target'] == 'PEWeightBuffer' and constraint_['type'] == 'temporal':
                             constraint_['factors'] = f"P=1 Q=1 M=1 N=1 R={R} S={S}"
+                    R = 1
+                    S = 1
 
                     # for input, maximize P, Q temporal unrolling in Global Buffer
                     # Not as easy as finding sub factors
@@ -365,6 +371,8 @@ class WaferConfig():
                     for constraint_ in constraint_targets:
                         if constraint_['target'] == 'GlobalBuffer' and constraint_['type'] == 'temporal':
                             constraint_['factors'] = f"R=1 S=1 P={glb_factors[0]} Q={glb_factors[1]}"
+                    P = P // glb_factors[0]
+                    Q = Q // glb_factors[1]
 
                     layer_root = os.path.join(layers_root,  f"{get_layer_name(l)}_{get_layer_num_core(l)}")
                     if not os.path.exists(layer_root):
@@ -475,20 +483,20 @@ class WaferConfig():
 
 if __name__ == "__main__":
     wafer_config = WaferConfig(
-        core_num_mac = 8,
+        core_num_mac = 64,
         core_buffer_bw = 2048,
         core_buffer_size = 512,
 
-        core_noc_bw = 2048,
+        core_noc_bw = 4096,
         core_noc_vc = 4,
         core_noc_buffer_size = 4,
-        core_array_h = 20,
-        core_array_w = 25,
+        core_array_h = 18,
+        core_array_w = 19,
 
         reticle_bw = 1,
         reticle_array_h = 7, 
         reticle_array_w = 8,
 
-        wafer_mem_bw = 100, # testing!
+        wafer_mem_bw = 4096, # testing!
     )
     wafer_config.run(dump_benchmark=True, invoke_timeloop_mapper=True, invoke_timeloop_model=True, invoke_focus=True, predict=True, verbose=True)

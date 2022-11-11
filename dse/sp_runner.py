@@ -53,7 +53,7 @@ def run_timeloop_mapper(layer_root, verbose=True):
     model_name, layer_id = parsed_layer_config.group(1), parsed_layer_config.group(2)
     prob_specs = os.path.join(gc.database_root, model_name, f"{model_name}_layer{layer_id}.yaml")
 
-    redirect_log =  ">" + os.path.join(layer_root, "timeloop-log.txt") + " 2>&1"
+    redirect_log =  ">" + os.path.join(layer_root, "timeloop-mapper-log.txt") + " 2>&1"
 
     command = " ".join([executable, arch_specs, mapper_specs, constraint_specs, prob_specs, redirect_log])
     # if verbose: print(command)
@@ -100,6 +100,7 @@ def run_timeloop_model(layer_root, verbose=True):
     parsed_layer_config = re.search(r"(^.*)_layer(\d+)_\d+$", os.path.split(layer_root)[1])
     model_name, layer_id = parsed_layer_config.group(1), parsed_layer_config.group(2)
     prob_specs = os.path.join(gc.database_root, model_name, f"{model_name}_layer{layer_id}.yaml")
+    redirect_log =  ">" + os.path.join(layer_root, "timeloop-model-log.txt") + " 2>&1"
 
     dump_mapping_file = os.path.join(layer_root, "dump_mapping.yaml")
 
@@ -112,7 +113,7 @@ def run_timeloop_model(layer_root, verbose=True):
 
     # invoke model for getting communication status, single process
     executable = os.path.join(gc.timeloop_lib_path, 'timeloop-model')
-    command = " ".join([executable, arch_specs, dump_mapping_file, prob_specs])
+    command = " ".join([executable, arch_specs, dump_mapping_file, prob_specs, redirect_log])
 
     env = os.environ.copy()
     if "LD_LIBRARY_PATH" in env:

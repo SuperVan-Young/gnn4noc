@@ -120,24 +120,24 @@ class ResultAnalyzer():
             y = [perfs[v]['latency'] for v in index_to_best_dp.values() if perfs[v]['ratio'] != np.inf]
             plt.plot(x, y)
 
-            x_c = [k for k, v in index_to_best_dp.items() if perfs[v]['ratio'] <= COMP_BOUND]
-            y_c = [perfs[v]['latency'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] <= COMP_BOUND]
-            x_m = [k for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf]
-            y_m = [perfs[v]['latency'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf]
-            plt.scatter(x_c, y_c, marker='x', color='b', label='computation-bound')
-            plt.scatter(x_m, y_m, marker='x', color='r', label='memory-bound')
+            c = np.array([perfs[v]['ratio'] for v, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
+            c = np.log(c)
+            cmap = matplotlib.cm.get_cmap('bone')
+            norm = matplotlib.colors.Normalize(c.min(), c.max())
+            c = cmap(norm(c.tolist()))
+            plt.scatter(x, y, marker='x', color=c)
             plt.xlabel(cluster_columns[0])
             plt.ylabel('total latency')
-            plt.legend()
 
         elif dim == 2:
             ax = plt.axes(projection='3d')
 
-            x = np.log2([k[0] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
-            y = np.log2([k[1] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
-            z = np.array([perfs[v]['latency'] for v, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
-            c = np.array([perfs[v]['ratio'] for v, v in index_to_best_dp.items() if perfs[v]['ratio'] > COMP_BOUND and perfs[v]['ratio'] != np.inf])
-            cmap = matplotlib.cm.get_cmap('plasma')
+            x = np.log2([k[0] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
+            y = np.log2([k[1] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
+            z = np.array([perfs[v]['latency'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
+            c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
+            c = np.log(c)
+            cmap = matplotlib.cm.get_cmap('bone')
             norm = matplotlib.colors.Normalize(c.min(), c.max())
             c = cmap(norm(c.tolist()))
             if len(z):
