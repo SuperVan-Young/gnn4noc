@@ -149,9 +149,9 @@ if __name__ == "__main__":
     design_points = parse_design_point_list(list_path)
     search_space = WaferSearchSpace(design_points, )
     search_space.run(
-        dump_config_spec=True, 
-        invoke_timeloop_mapper=True, 
-        invoke_timeloop_model=True, 
-        invoke_focus=True, 
+        dump_config_spec=False, 
+        invoke_timeloop_mapper=False, 
+        invoke_timeloop_model=False, 
+        invoke_focus=False, 
         predict=True, 
         verbose=True, debug=True) 

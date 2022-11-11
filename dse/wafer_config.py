@@ -348,13 +348,6 @@ class WaferConfig():
                     P = P // core_factors[2]
                     Q = Q // core_factors[3]
 
-                    # for weight buffer, try best to reuse R and S in weight buffer (assume it could fit)
-                    for constraint_ in constraint_targets:
-                        if constraint_['target'] == 'PEWeightBuffer' and constraint_['type'] == 'temporal':
-                            constraint_['factors'] = f"P=1 Q=1 M=1 N=1 R={R} S={S}"
-                    R = 1
-                    S = 1
-
                     # for input, maximize P, Q temporal unrolling in Global Buffer
                     # Not as easy as finding sub factors
                     global_buffer_size = self.core_buffer_size * 1024 // 16
@@ -370,9 +363,16 @@ class WaferConfig():
                             glb_factors[0], glb_factors[1] = p, q
                     for constraint_ in constraint_targets:
                         if constraint_['target'] == 'GlobalBuffer' and constraint_['type'] == 'temporal':
-                            constraint_['factors'] = f"R=1 S=1 P={glb_factors[0]} Q={glb_factors[1]}"
+                            constraint_['factors'] = f"R=1 S=1 C=1 M=1 N=1 P={glb_factors[0]} Q={glb_factors[1]}"
                     P = P // glb_factors[0]
                     Q = Q // glb_factors[1]
+
+                    # for weight buffer, try best to reuse R and S in weight buffer (assume it could fit)
+                    for constraint_ in constraint_targets:
+                        if constraint_['target'] == 'PEWeightBuffer' and constraint_['type'] == 'temporal':
+                            constraint_['factors'] = f"P=1 Q=1 M=1 N=1 R={R} S={S}"
+                    R = 1
+                    S = 1
 
                     layer_root = os.path.join(layers_root,  f"{get_layer_name(l)}_{get_layer_num_core(l)}")
                     if not os.path.exists(layer_root):
