@@ -18,6 +18,23 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset.trace_parser.trace_parser import TraceParser
 from dataset.predictor.lp_predictor import LinearProgrammingPredictor
 
+class UnrollingConstraint():
+    """Unroll 7-nested loop and generate valid timeloop constraint
+    """
+    #TODO: finish this part and start the experiment TONIGHT!
+    def __init__(self, **kwargs) -> None:
+        self.core_num_mac = kwargs['core_num_mac']
+        self.core_buffer_size = kwargs['core_buffer_size']
+        self.N = kwargs['N']
+        self.M = kwargs['M']
+        self.C = kwargs['C']
+        self.P = kwargs['P']
+        self.Q = kwargs['Q']
+        self.R = kwargs['R']
+        self.S = kwargs['S']
+
+    
+
 
 class WaferConfig():
     
@@ -332,12 +349,35 @@ class WaferConfig():
                     M = M // mac_factors[1]
 
                     # utilize all cores, unroll C, M, P, Q
-                    num_utilized_core = get_max_factor(C*M*P*Q, num_core)
+                    # first assure C & M, then unroll P and Q
+                    # num_utilized_core = get_max_factor(C*M*P*Q, num_core)
+                    # if verbose:
+                    #     print(f"utilized core: {num_utilized_core} / {num_core}")
+                    # core_dims = [C, M, P, Q]
+                    # core_factors = get_unroll_factors(core_dims, num_utilized_core)
+                    # assert(np.prod(core_factors) == num_utilized_core)
+                    # constraint_targets.append({
+                    #     'target': 'DRAM',
+                    #     'type': 'spatial',
+                    #     'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q'], core_factors)]),
+                    # })
+                    # C = C // core_factors[0]
+                    # M = M // core_factors[1]
+                    # P = P // core_factors[2]
+                    # Q = Q // core_factors[3]
+
+                    num_cm_utilized_core = get_max_factor(C*M, num_core)
+                    core_cm_dims = [C, M]
+                    core_cm_factors = get_unroll_factors(core_cm_dims, num_cm_utilized_core)
+                    assert np.prod(core_cm_factors) == num_cm_utilized_core
+                    num_pq_utilized_core = get_max_factor(P*Q, num_core // num_cm_utilized_core)
+                    core_pq_dims = [P, Q]
+                    core_pq_factors = get_unroll_factors(core_pq_dims, num_pq_utilized_core)
+                    assert np.prod(core_pq_factors) == num_pq_utilized_core
+                    core_factors = core_cm_factors + core_pq_factors
+                    num_utilized_core = num_cm_utilized_core * num_pq_utilized_core
                     if verbose:
                         print(f"utilized core: {num_utilized_core} / {num_core}")
-                    core_dims = [C, M, P, Q]
-                    core_factors = get_unroll_factors(core_dims, num_utilized_core)
-                    assert(np.prod(core_factors) == num_utilized_core)
                     constraint_targets.append({
                         'target': 'DRAM',
                         'type': 'spatial',
@@ -351,7 +391,7 @@ class WaferConfig():
                     # for input, maximize P, Q temporal unrolling in Global Buffer
                     # Not as easy as finding sub factors
                     global_buffer_size = self.core_buffer_size * 1024 // 16
-                    weight_size = pe_factors[0] * mac_factors[0] * R * S
+                    weight_size = pe_factors[0] * pe_factors[1] * mac_factors[0] * mac_factors[1] * R * S
                     P_subfactors = get_all_subfactors(P)
                     Q_subfactors = get_all_subfactors(Q)
                     glb_factors = [1, 1]
@@ -370,7 +410,7 @@ class WaferConfig():
                     # for weight buffer, try best to reuse R and S in weight buffer (assume it could fit)
                     for constraint_ in constraint_targets:
                         if constraint_['target'] == 'PEWeightBuffer' and constraint_['type'] == 'temporal':
-                            constraint_['factors'] = f"P=1 Q=1 M=1 N=1 R={R} S={S}"
+                            constraint_['factors'] = f"P=1 Q=1 M=1 N=1 C=1 R={R} S={S}"
                     R = 1
                     S = 1
 
@@ -438,7 +478,7 @@ class WaferConfig():
                 core_array_size = int(np.sqrt(np.sum([get_layer_num_core(l) for l in benchmark_layers]))) + 2  # eee, cannot run too big
                 flit_size = self.core_noc_bw
                 timeloop_buffer_path = os.path.join(self.task_root, "layers")
-                if invoke_focus: run_focus(benchmark_path, core_array_size, flit_size, mode, timeloop_buffer_path, verbose=False, debug=False, timeout=600)
+                if invoke_focus: run_focus(benchmark_path, core_array_size, flit_size, mode, timeloop_buffer_path, verbose=False, debug=False, timeout=3600)
 
                 # trace parser
                 taskname = f"{benchmark_name}_b1w{flit_size}_{core_array_size}x{core_array_size}"

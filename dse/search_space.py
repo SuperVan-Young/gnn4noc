@@ -66,7 +66,7 @@ class WaferSearchSpace():
         print(f"total design points: {self.total_design_points}")
 
         if dump_config_spec:
-            with Pool(processes=32) as pool:
+            with Pool(processes=gc.multiprocess_cores) as pool:
                 pool.map(run_dump_config_spec, self.design_points)
             print(f"Dumping config specification complete!")
 
@@ -86,7 +86,7 @@ class WaferSearchSpace():
             # some layers cannot give a valid mapping, give it up anyway
             # we say it's a design flaw
             print(f"Timeloop mapper layers: {len(layer_roots)}")
-            with Pool(processes=4) as pool:
+            with Pool(processes=gc.multiprocess_cores) as pool:
                 pool.map(run_timeloop_mapper, layer_roots)
 
         if invoke_timeloop_model:
@@ -102,7 +102,7 @@ class WaferSearchSpace():
                 break
 
             print(f"Timeloop model layers: {len(layer_roots)}")
-            with Pool(processes=16) as pool:
+            with Pool(processes=gc.multiprocess_cores) as pool:
                 pool.map(run_timeloop_model, layer_roots)
 
         if predict:
@@ -129,15 +129,18 @@ class WaferSearchSpace():
                 if not os.path.exists(prediction_root):
                     dp_predict.append(config)
                     continue
+                is_append_dp = True
                 for _, __, files in os.walk(prediction_root):
-                    if len(files) == 2: continue
-                dp_predict.append(config)
+                    if len(files) == 2:
+                        is_append_dp = False
+                        break
+                if is_append_dp: dp_predict.append(config)
             
             print(f"Predict: {len(dp_predict)}")
 
             # for dp in dp_predict:
             #     run_config(dp)
-            with Pool(processes=16) as pool:
+            with Pool(processes=gc.multiprocess_cores) as pool:
                 if invoke_focus:
                     pool.map(run_config_with_invoke_focus, dp_predict)
                 else:
@@ -145,13 +148,12 @@ class WaferSearchSpace():
 
             
 if __name__ == "__main__":
-    list_path = os.path.join(gc.dse_root, "design_points/design_points_2.list")
-    design_points = parse_design_point_list(list_path)
-    search_space = WaferSearchSpace(design_points, )
+    design_points = parse_design_point_list(gc.design_points_path)
+    search_space = WaferSearchSpace(design_points)
     search_space.run(
-        dump_config_spec=False, 
-        invoke_timeloop_mapper=False, 
-        invoke_timeloop_model=False, 
-        invoke_focus=False, 
+        dump_config_spec=True, 
+        invoke_timeloop_mapper=True, 
+        invoke_timeloop_model=True, 
+        invoke_focus=True, 
         predict=True, 
         verbose=True, debug=True) 

@@ -83,10 +83,26 @@ class ResultAnalyzer():
                         assert os.path.exists(prediction_path), f"{prediction_path} does not exists!"
                         with open(prediction_path, 'r') as f:
                             a = json.load(f)
-                            perfs[dp]['latency'] = sum([v for v in a['prediction'].values()])
-                            perfs[dp]['ratio'] = sum([v for v in a['prediction'].values()]) / sum([v for v in a['theoretical'].values()])
+                            # select part of the layers
+                            wanted_layers = [
+                                # "dall-e_layer5",
+                                # "dall-e_layer10",
+                                "dall-e_layer11",
+                                # "dall-e_layer19",
+                                # "dall-e_layer20",
+                                # "dall-e_layer28",
+                                # "dall-e_layer29",
+                                "gpt2-xl_layer1",
+                                "gpt2-xl_layer2",
+                                "gpt2-xl_layer3",
+                                "gpt2-xl_layer4",
+                            ]
+                            prediction = sum([v for k, v in a['prediction'].items() if k in wanted_layers])
+                            theoretical = sum([v for k, v in a['theoretical'].items() if k in wanted_layers])
+                            perfs[dp]['latency'] = prediction 
+                            perfs[dp]['ratio'] = prediction / theoretical
                     except:
-                        print(f"Warning: Missing files in loading prediction result of {dp}, automatically filling with inf")
+                        print(f"Warning: error for {dp}, automatically filling with inf")
                         traceback.print_exc()
                         perfs[dp]['latency'] = np.inf
                         perfs[dp]['ratio'] = np.inf
@@ -163,21 +179,21 @@ class ResultAnalyzer():
 
 
 if __name__ == "__main__":
-    design_points = parse_design_point_list(os.path.join(gc.dse_root, "design_points/design_points_2.list"))
+    design_points = parse_design_point_list(gc.design_points_path)
     design_points = [tuple(i) for i in design_points]
     analyzer = ResultAnalyzer(design_points)
     
     # single variable, other variable choose the best setting
-    for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
-        cluster_columns = [prop]
-        fixed_columns = dict()
-        try:
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl")
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="dall-e-128")
-        except:
-            print(f"error: {cluster_columns} {fixed_columns}")
-            # traceback.print_exc()
-            continue
+    # for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
+    #     cluster_columns = [prop]
+    #     fixed_columns = dict()
+    #     try:
+    #         analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl")
+    #         analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="dall-e-128")
+    #     except:
+    #         print(f"error: {cluster_columns} {fixed_columns}")
+    #         # traceback.print_exc()
+    #         continue
 
     # for fixed buffer size, perf <- mac and noc?
     for core_buffer_size in 2 ** np.arange(5, 12):

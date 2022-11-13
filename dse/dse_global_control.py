@@ -30,7 +30,7 @@ def get_spec_path(taskname):
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))
 
-experiment_date = '1111'
+experiment_date = '1113_2'
 
 task_root = os.path.join(dse_root, "tasks")
 if not os.path.exists(task_root):
@@ -46,7 +46,12 @@ fig_root = os.path.join(fig_root, experiment_date)
 if not os.path.exists(fig_root):
     os.mkdir(fig_root)
 
+design_points_path = os.path.join(dse_root, "design_points", "design_points_mini.list")
+assert os.path.exists(design_points_path)
 # --------------------- control -------------------------
-num_effective_model = 2   # how many model on 1 wafer
 
-timeloop_mapper_timeout = 3
+num_effective_model = 2   # how many model on 1 wafer  # TODO: 2,4,8,16
+
+timeloop_mapper_timeout = 1
+
+multiprocess_cores = 24
