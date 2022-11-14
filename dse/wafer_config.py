@@ -5,6 +5,7 @@ import re
 import numpy as np
 from tqdm import tqdm
 import time
+from copy import deepcopy
 import multiprocessing as mp
 from itertools import product
 
@@ -23,17 +24,260 @@ class UnrollingConstraint():
     """
     #TODO: finish this part and start the experiment TONIGHT!
     def __init__(self, **kwargs) -> None:
+        self.num_core = kwargs['num_core']
         self.core_num_mac = kwargs['core_num_mac']
         self.core_buffer_size = kwargs['core_buffer_size']
-        self.N = kwargs['N']
-        self.M = kwargs['M']
-        self.C = kwargs['C']
-        self.P = kwargs['P']
-        self.Q = kwargs['Q']
-        self.R = kwargs['R']
-        self.S = kwargs['S']
+        self.dims = {
+            "N": kwargs['N'],
+            "M": kwargs['M'],
+            "C": kwargs['C'],
+            "P": kwargs['P'],
+            "Q": kwargs['Q'],
+            "R": kwargs['R'],
+            "S": kwargs['S'],
+        }
+        self.unrolls = {
+            "dram_temporal": {k: 1 for k in self.dims.keys()},
+            "dram_spatial": {k: 1 for k in self.dims.keys()},
+            "glb_temporal": {k: 1 for k in self.dims.keys()},  # RS temp unrolls here, but add constraint to weight buf
+            "mac_spatial": {k: 1 for k in self.dims.keys()},
+        }
+        self.tensor_dims = {
+            "weight_shape": ('M', "C", "R", "S"),
+            "input_shape": ('N', "C", "P", "Q"),
+            "output_shape": ('N', "M", "P", "Q"),
+        }
+        
+        assert self.dims['N'] == 1
 
-    
+
+    def get_all_subfactors(self, num):
+        """Get a number's all factors, return a set
+        """
+        res = set()
+        for i in range(1, int(np.ceil(np.sqrt(float(num)))) + 1):
+            if num % i == 0:
+                res.add(i)
+                res.add(num // i)
+        return res
+
+
+    def _get_remaining_dims(self, dim_name):
+        d = np.prod([v[dim_name] for v in self.unrolls.values()])
+        return self.dims[dim_name] // int(d)
+
+
+    def _get_utilized_global_buffer(self, core_unrolled_dims: dict):
+        cur_tensor_sizes = [
+            np.prod([
+                core_unrolled_dims['M'],
+                core_unrolled_dims['C'],
+                core_unrolled_dims['R'],
+                core_unrolled_dims['S'],
+            ]), # weight
+            np.prod([
+                core_unrolled_dims['N'],
+                core_unrolled_dims['C'],
+                core_unrolled_dims['P'] + core_unrolled_dims['R'] - 1,
+                core_unrolled_dims['Q'] + core_unrolled_dims['S'] - 1,
+            ]), # input
+            np.prod([
+                core_unrolled_dims['N'],
+                core_unrolled_dims['M'],
+                core_unrolled_dims['P'],
+                core_unrolled_dims['Q'],
+            ]), # output
+        ]
+        return np.sum(cur_tensor_sizes)
+
+    def _get_utilized_core(self, dram_unrolled_dims: dict):
+        return np.prod(list(dram_unrolled_dims.values()))
+
+
+    def unroll_to_glb_temporal(self, dim_names:list, verbose=False):
+        """Unroll temporal dims to global buffer.
+        Find the biggest unrolling factor product, as long as global buffer could hold it.
+        """
+        # get unrolled dims within a core
+        core_unrolled_dims = {k: 1 for k in self.dims.keys()}
+        for unroll_type in ["glb_temporal", "mac_spatial"]:
+            unroll_factors = self.unrolls[unroll_type]
+            for d in core_unrolled_dims.keys():
+                core_unrolled_dims[d] *= unroll_factors[d]
+
+        best_factors = tuple([1 for k in dim_names])
+
+        # search for best factors
+        remaining_dims = [self._get_remaining_dims(k) for k in dim_names]
+        subfactors = [self.get_all_subfactors(v) for v in remaining_dims]
+        for factors in product(*subfactors):
+            # get current tensor sizes
+            cur_core_unrolled_dims = deepcopy(core_unrolled_dims)
+            for dim_name, factor in zip(dim_names, factors):
+                cur_core_unrolled_dims[dim_name] *= factor
+            cur_tensor_sizes = self._get_utilized_global_buffer(cur_core_unrolled_dims)
+
+            # check if tensor sizes could be held in global buffer
+            if cur_tensor_sizes > self.core_buffer_size:
+                continue
+
+            # check if this is a better factor
+            if np.prod(factors) >= np.prod(best_factors):
+                best_factors = factors
+        
+        if verbose:
+            print(f"Unroll to glb temporal: ", [f"{dim_name}={factor}" for dim_name, factor in zip(dim_names, best_factors)])
+
+        for dim_name, factor in zip(dim_names, best_factors):
+            assert self.unrolls['glb_temporal'][dim_name] == 1  # never unrolled before
+            self.unrolls['glb_temporal'][dim_name] = factor
+
+
+    def unroll_to_dram_spatial(self, dim_names, verbose=False):
+        """Unroll to dram spatial. Only check if there's enough core.
+        """
+        best_factors = tuple([1 for k in dim_names])
+
+        # search for best factors
+        remaining_dims = [self._get_remaining_dims(k) for k in dim_names]
+        subfactors = [self.get_all_subfactors(v) for v in remaining_dims]
+        for factors in product(*subfactors):
+            # get current tensor sizes
+            cur_dram_unrolled_dims = deepcopy(self.unrolls['dram_spatial'])
+            for dim_name, factor in zip(dim_names, factors):
+                cur_dram_unrolled_dims[dim_name] *= factor
+            if self._get_utilized_core(cur_dram_unrolled_dims) > self.num_core:
+                continue
+
+            # check if this is a better factor
+            if np.prod(factors) >= np.prod(best_factors):
+                best_factors = factors
+        
+        if verbose:
+            print(f"Unroll to dram spatial: ", [f"{dim_name}={factor}" for dim_name, factor in zip(dim_names, best_factors)])
+
+        for dim_name, factor in zip(dim_names, best_factors):
+            assert self.unrolls['dram_spatial'][dim_name] == 1  # never unrolled before
+            self.unrolls['dram_spatial'][dim_name] = factor
+
+
+    def unroll_to_mac_spatial(self, verbose=False):
+        """Convert current dims in glb temporal to mac spatial
+        """
+        dim_names = ['C', 'M', 'P', 'Q']
+        best_factors = tuple([1 for k in dim_names])
+
+        remaining_dims = [self.unrolls['glb_temporal'][k] for k in dim_names]
+        subfactors = [self.get_all_subfactors(v) for v in remaining_dims]
+
+        print(f"mac spatial: {subfactors}")
+
+        for factors in product(*subfactors):
+            num_utilized_mac = np.prod(factors)
+            if num_utilized_mac > self.core_num_mac:
+                continue
+            if num_utilized_mac >= np.prod(best_factors):
+                best_factors = factors
+
+        for dim_name, factor in zip(dim_names, best_factors):
+            assert self.unrolls['mac_spatial'][dim_name] == 1  # never unrolled before
+            self.unrolls['mac_spatial'][dim_name] = factor
+            self.unrolls['glb_temporal'][dim_name] //= factor
+
+        if verbose:
+            print(f"Unroll to mac spatial: ", [f"{dim_name}={factor}" for dim_name, factor in zip(dim_names, best_factors)])
+            print(f"Shrinking glb temporal: ", [f"{dim_name}={self.unrolls['glb_temporal'][dim_name]}" for dim_name in dim_names])
+
+    def unroll_to_dram_temporal(self):
+        """At last, convert remaining dims to dram temporal.
+        """
+        self.unrolls['dram_temporal'] = {k: self._get_remaining_dims(k) for k in self.dims.keys()}
+
+
+    def dump_constraint(self, verbose=False):
+        """Dump timeloop constraint. Only do this after all unrolling has been completed!
+        """
+        def get_factor_str(factors: dict):
+            return " ".join(f"{l}={factor}" for l, factor in factors.items())
+
+        mapping_constraints = []
+
+        # DRAM
+        mapping_constraints.append({
+            'target': 'DRAM',
+            'type': 'temporal',
+            'factors': get_factor_str(self.unrolls['dram_temporal']),
+            'permutation': 'RSPQNCM'
+        })
+        mapping_constraints.append({
+            'target': 'DRAM',
+            'type': 'spatial',
+            'factors': get_factor_str(self.unrolls['dram_spatial']),
+        })
+
+        # Global buffer
+        mapping_constraints.append({
+            'target': 'GlobalBuffer',
+            'type': 'temporal',
+            'factors': get_factor_str(self.unrolls['glb_temporal']),
+            'permutation': 'RSPQNCM',
+        })
+
+        pe_dims = ['C', 'M']
+        is_double_pe = False
+        for dim_name in pe_dims:
+            if self.unrolls['mac_spatial'][dim_name] % 2 == 0:
+                is_double_pe = True
+                glb_spatial = {k: 1 for k in pe_dims}
+                glb_spatial[dim_name] = 2
+                self.unrolls['mac_spatial'][dim_name] //= 2
+                mapping_constraints.append({
+                    'target': 'GlobalBuffer',
+                    'type': 'spatial',
+                    'factors': get_factor_str(glb_spatial),
+                })
+                break
+        assert is_double_pe
+
+        # num mac
+        mapping_constraints.append({
+            'target': 'PEAccuBuffer',
+            'type': 'spatial',
+            'factors': get_factor_str({k: self.unrolls['mac_spatial'][k] for k in pe_dims}),
+        })
+
+        # no temporal amplification in all subbuffers
+        for sub_buffer in ['PEWeightRegs', 'PEInputBuffer', 'PEAccuBuffer', 'PEWeightBuffer']:
+            mapping_constraints.append({
+                'target': sub_buffer,
+                'type': 'temporal',
+                'factors': get_factor_str({k: 1 for k in self.dims.keys()})
+            })
+
+        if verbose:
+            print(mapping_constraints)
+
+        return mapping_constraints
+
+
+    def run(self):
+        """Unroll all dims in order and return the results.
+        """
+        verbose=False
+        self.unroll_to_glb_temporal(['R', 'S'], verbose=verbose)  # weight stationary!
+
+        self.unroll_to_glb_temporal(['C'], verbose=verbose)
+        self.unroll_to_dram_spatial(['M'], verbose=verbose)
+
+        self.unroll_to_glb_temporal(['M'], verbose=verbose)
+
+        self.unroll_to_glb_temporal(['P', 'Q'], verbose=verbose)
+        self.unroll_to_dram_spatial(['P', 'Q'], verbose=verbose)
+
+        self.unroll_to_mac_spatial(verbose=verbose)
+        self.unroll_to_dram_temporal()
+
+        return self.dump_constraint(verbose=verbose)
 
 
 class WaferConfig():
@@ -229,55 +473,6 @@ class WaferConfig():
     def _dump_constraints_config(self, verbose=False):
         """Add constraints for faster timeloop searching
         Cannot assure a valid mapping. FXXK TIMELOOP"""
-
-        def get_all_subfactors(num):
-            """Get a number's all factors, return a set
-            """
-            res = set()
-            for i in range(1, int(np.ceil(np.sqrt(num)))):
-                if num % i == 0:
-                    res.add(i)
-                    res.add(num // i)
-            return res
-
-        def get_max_factor(num, bound):
-            """Return maximum i, s.t. num % i == 0, i <= bound
-            """
-            if bound > np.sqrt(num):
-                for i in range(int(np.ceil(num / bound)), int(np.ceil(np.sqrt(num)))):
-                    if num % i == 0:
-                        return num // i
-                for i in range(int(np.sqrt(num)), 0, -1):
-                    if num % i == 0:
-                        return i
-            else:
-                for i in range(bound, 0, -1):
-                    if num % i == 0:
-                        return i
-
-        def get_max_subfactor(num, factor):
-            """find maximum i, s.t. factor % i == 0, num % i == 0
-            """
-            for i in range(1, int(np.ceil(np.sqrt(factor)))):
-                if factor % i == 0:
-                    i_ = factor // i
-                    if num % i_ == 0:
-                        return i_
-            for i in range(int(np.sqrt(factor)), 0, -1):
-                if factor % i == 0 and num % i == 0:
-                    return i
-
-        def get_unroll_factors(dims, factor):
-            """Unroll dims, w.r.t. priority
-            """
-            factors = []
-            for i, dim in enumerate(dims):
-                unroll_factor = get_max_subfactor(dim, factor)
-                # if verbose: print(f"{unroll_factor} = get_max_subfactor({dim}, {factor})")
-                factors.append(unroll_factor)
-                factor = factor // unroll_factor
-            return factors
-        
         layers_root = os.path.join(self.task_root, "layers")
         if not os.path.exists(layers_root):
             os.mkdir(layers_root)
@@ -301,118 +496,25 @@ class WaferConfig():
                     layer_config_path = os.path.join(gc.focus_root, "database", model_name, f"{model_name}_layer{layer_id}.yaml")
                     with open(layer_config_path, 'r') as f:
                         layer_config = yaml.load(f, Loader=yaml.FullLoader)
-                    C = layer_config['problem']['instance']['C']
-                    M = layer_config['problem']['instance']['M']
-                    P = layer_config['problem']['instance']['P']
-                    Q = layer_config['problem']['instance']['Q']
-                    R = layer_config['problem']['instance']['R']
-                    S = layer_config['problem']['instance']['S']
 
-                    if verbose:
-                        print(f"layer name: {get_layer_name(l)}")
-                        print(f"Initial C, M, P, Q = {C}, {M}, {P}, {Q}, {R}, {S}")
+                    print(f"layer name = {l}")
+                    unroller = UnrollingConstraint(
+                        num_core=num_core,
+                        core_num_mac=self.core_num_mac,
+                        core_buffer_size=self.core_buffer_size,
+                        N=layer_config['problem']['instance']['N'],
+                        C=layer_config['problem']['instance']['C'],
+                        M=layer_config['problem']['instance']['M'],
+                        P=layer_config['problem']['instance']['P'],
+                        Q=layer_config['problem']['instance']['Q'],
+                        R=layer_config['problem']['instance']['R'],
+                        S=layer_config['problem']['instance']['S'],
+                    )
 
                     constraint_bu_path = os.path.join(gc.focus_root, "database", "constraints", "simba_constraints_copy.yaml")
                     with open(constraint_bu_path, 'r') as f:
                         constraint = yaml.load(f, Loader=yaml.FullLoader)
-                        constraint_targets = constraint['mapspace_constraints']['targets']
-
-                    # utilize PE first, only unroll C, M
-                    num_utilized_mac = get_max_factor(C*M, self.core_num_mac)
-                    pe_factors = [1, 1]
-                    if verbose:
-                        print(f"utilized mac: {num_utilized_mac} / {self.core_num_mac}")
-                    if num_utilized_mac % 2 == 0:
-                        num_utilized_mac = num_utilized_mac // 2
-                        if C % 2 == 0:
-                            pe_factors[0] = 2
-                        else:
-                            pe_factors[1] = 2
-                    constraint_targets.append({
-                        'target': 'GlobalBuffer',
-                        'type': 'spatial',
-                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], pe_factors)]),
-                    })
-                    C = C // pe_factors[0]
-                    M = M // pe_factors[1]
-
-                    # for mac, first unroll C, then unroll M
-                    mac_dims = [C, M]
-                    mac_factors = get_unroll_factors(mac_dims, num_utilized_mac)
-                    assert(np.prod(mac_factors) == num_utilized_mac)
-                    constraint_targets.append({
-                        'target': 'PEAccuBuffer',
-                        'type': 'spatial',
-                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], mac_factors)]),
-                    })
-                    C = C // mac_factors[0]
-                    M = M // mac_factors[1]
-
-                    # utilize all cores, unroll C, M, P, Q
-                    # first assure C & M, then unroll P and Q
-                    # num_utilized_core = get_max_factor(C*M*P*Q, num_core)
-                    # if verbose:
-                    #     print(f"utilized core: {num_utilized_core} / {num_core}")
-                    # core_dims = [C, M, P, Q]
-                    # core_factors = get_unroll_factors(core_dims, num_utilized_core)
-                    # assert(np.prod(core_factors) == num_utilized_core)
-                    # constraint_targets.append({
-                    #     'target': 'DRAM',
-                    #     'type': 'spatial',
-                    #     'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q'], core_factors)]),
-                    # })
-                    # C = C // core_factors[0]
-                    # M = M // core_factors[1]
-                    # P = P // core_factors[2]
-                    # Q = Q // core_factors[3]
-
-                    num_cm_utilized_core = get_max_factor(C*M, num_core)
-                    core_cm_dims = [C, M]
-                    core_cm_factors = get_unroll_factors(core_cm_dims, num_cm_utilized_core)
-                    assert np.prod(core_cm_factors) == num_cm_utilized_core
-                    num_pq_utilized_core = get_max_factor(P*Q, num_core // num_cm_utilized_core)
-                    core_pq_dims = [P, Q]
-                    core_pq_factors = get_unroll_factors(core_pq_dims, num_pq_utilized_core)
-                    assert np.prod(core_pq_factors) == num_pq_utilized_core
-                    core_factors = core_cm_factors + core_pq_factors
-                    num_utilized_core = num_cm_utilized_core * num_pq_utilized_core
-                    if verbose:
-                        print(f"utilized core: {num_utilized_core} / {num_core}")
-                    constraint_targets.append({
-                        'target': 'DRAM',
-                        'type': 'spatial',
-                        'factors': " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q'], core_factors)]),
-                    })
-                    C = C // core_factors[0]
-                    M = M // core_factors[1]
-                    P = P // core_factors[2]
-                    Q = Q // core_factors[3]
-
-                    # for input, maximize P, Q temporal unrolling in Global Buffer
-                    # Not as easy as finding sub factors
-                    global_buffer_size = self.core_buffer_size * 1024 // 16
-                    weight_size = pe_factors[0] * pe_factors[1] * mac_factors[0] * mac_factors[1] * R * S
-                    P_subfactors = get_all_subfactors(P)
-                    Q_subfactors = get_all_subfactors(Q)
-                    glb_factors = [1, 1]
-                    for p, q in product(P_subfactors, Q_subfactors):
-                        input_size = (p + R - 1) * (q + S - 1) * pe_factors[0] * mac_factors[0]
-                        output_size = p * q * pe_factors[1] * mac_factors[1]
-                        if weight_size + input_size + output_size > global_buffer_size: continue
-                        if p * q > glb_factors[0] * glb_factors[1]:
-                            glb_factors[0], glb_factors[1] = p, q
-                    for constraint_ in constraint_targets:
-                        if constraint_['target'] == 'GlobalBuffer' and constraint_['type'] == 'temporal':
-                            constraint_['factors'] = f"R=1 S=1 C=1 M=1 N=1 P={glb_factors[0]} Q={glb_factors[1]}"
-                    P = P // glb_factors[0]
-                    Q = Q // glb_factors[1]
-
-                    # for weight buffer, try best to reuse R and S in weight buffer (assume it could fit)
-                    for constraint_ in constraint_targets:
-                        if constraint_['target'] == 'PEWeightBuffer' and constraint_['type'] == 'temporal':
-                            constraint_['factors'] = f"P=1 Q=1 M=1 N=1 C=1 R={R} S={S}"
-                    R = 1
-                    S = 1
+                    constraint['mapspace_constraints']['targets'] = unroller.run()
 
                     layer_root = os.path.join(layers_root,  f"{get_layer_name(l)}_{get_layer_num_core(l)}")
                     if not os.path.exists(layer_root):
@@ -421,11 +523,6 @@ class WaferConfig():
                     constraint_path = os.path.join(layer_root, "constraints.yaml")
                     with open(constraint_path, 'w') as f:
                         yaml.dump(constraint, f)
-                    
-                    if verbose:
-                        print("core factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M', 'P', 'Q'], core_factors)]))
-                        print("mac factors: ", " ".join([f"{l}={factor}" for l, factor in zip(['C', 'M'], mac_factors)]))
-                        print()
 
     def _dump_modified_arch_config(self):
         """Copied from FOCUS toolchain.
