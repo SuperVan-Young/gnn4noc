@@ -170,13 +170,11 @@ class UnrollingConstraint():
         remaining_dims = [self.unrolls['glb_temporal'][k] for k in dim_names]
         subfactors = [self.get_all_subfactors(v) for v in remaining_dims]
 
-        print(f"mac spatial: {subfactors}")
-
         for factors in product(*subfactors):
             num_utilized_mac = np.prod(factors)
             if num_utilized_mac > self.core_num_mac:
                 continue
-            if num_utilized_mac >= np.prod(best_factors):
+            if num_utilized_mac >= np.prod(best_factors) and num_utilized_mac % 2 == 0:
                 best_factors = factors
 
         for dim_name, factor in zip(dim_names, best_factors):
@@ -237,7 +235,7 @@ class UnrollingConstraint():
                     'factors': get_factor_str(glb_spatial),
                 })
                 break
-        assert is_double_pe
+        assert is_double_pe, f"C={self.unrolls['mac_spatial']['C']} M={self.unrolls['mac_spatial']['M']}"
 
         # num mac
         mapping_constraints.append({
@@ -497,7 +495,6 @@ class WaferConfig():
                     with open(layer_config_path, 'r') as f:
                         layer_config = yaml.load(f, Loader=yaml.FullLoader)
 
-                    print(f"layer name = {l}")
                     unroller = UnrollingConstraint(
                         num_core=num_core,
                         core_num_mac=self.core_num_mac,
