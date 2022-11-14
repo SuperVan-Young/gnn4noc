@@ -54,4 +54,4 @@ num_effective_model = 2   # how many model on 1 wafer  # TODO: 2,4,8,16
 
 timeloop_mapper_timeout = 1
 
-multiprocess_cores = 24
+multiprocess_cores = 16
