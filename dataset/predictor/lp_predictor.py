@@ -80,10 +80,13 @@ class LinearProgrammingPredictor():
                 'flow_type': flow_types[G.nodes[u]['op_type']],
             }
             
-            # build a routing tree from hops
+            # build a routing tree from hops (add eject channels later)
             u_pe, v_pe = G.nodes[u]['p_pe'], G.nodes[v]['p_pe']
             pid = eattr['pkt'][0]
-            if pid in finished_pkts: continue  # debug: multicast pkts only count once
+            if pid in finished_pkts:
+                # for multicast packets, add its ejection channel
+                routers[v_pe][-2].append(flow_info)
+                continue
             finished_pkts.add(pid)
             if G.nodes[u]['op_type'] == 'wsrc': weight_pkts.add(pid)
 
@@ -91,10 +94,7 @@ class LinearProgrammingPredictor():
             routing_tree = {s: [] for s, d in hops}
             for s, d in hops:
                 routing_tree[s].append(d)
-            for s, d in hops:
-                # add ejection channels for leaf routers
-                if d not in routing_tree.keys():
-                    routing_tree[d] = [-2]  # magic number
+            routing_tree[v_pe].append(-2)
 
             for s_pe, ds in routing_tree.items():
                 for d_pe in ds:
