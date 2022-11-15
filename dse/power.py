@@ -107,9 +107,98 @@ class PowerPredictor():
                 total_flits = np.sum([info['channels'] * info['cnt'] * info['flit'] for pid, info in pkt_infos.items()])
                 report[layer_name] = total_flits
 
+        return report
+
 
     def calc_sram_power(self):
-        pass
+        """Return a timeloop-style report of buffer actions. 
+        """
+        report = dict()
+
+        layer_pattern = re.compile(r"^(.*)_\d+^")
+
+        layers_root = os.path.join(gc.task_root, 'layers')
+        for _, dirs, __ in os.walk(layers_root):
+            for layer_dir in dirs:
+                layer_name = layer_pattern.match(layer_dir).group(1)
+                layer_report = ['weight', 'input', 'output']
+                layer_report = {k: {
+                    'instance': 0,
+                    'read': 0,
+                    'write': 0,
+                } for k in layer_report}
+
+                dump_mapping_path = os.path.join(layers_root, layer_dir, 'dump_mapping.yaml')
+                with open(dump_mapping_path, 'r') as f:
+                    dump_mapping = yaml.load(f, Loader=yaml.FullLoader)
+
+                converted_mapping = dict()
+                for mapping_item in dump_mapping:
+                    target = f"{mapping_item['target']}_{mapping_item['type']}"
+                    factors = " ".split(mapping_item['factors'])
+                    factors = ["=".split(v) for v in factors]
+                    factors = {v[0]: int(v[1]) for v in factors}
+                    converted_mapping[target] = factors
+                
+                num_utilized_cores = np.prod(list(converted_mapping['DRAM_temporal'].values()))
+                for k in layer_report.keys():
+                    layer_report[k] = num_utilized_cores
+
+                layer_report['weight']['read'] = layer_report['weight']['write'] = np.prod([
+                    converted_mapping['DRAM_temporal']['C'],
+                    converted_mapping['DRAM_temporal']['M'],
+
+                    converted_mapping['GlobalBuffer_temporal']['C'],
+                    converted_mapping['GlobalBuffer_temporal']['M'],
+                    converted_mapping['GlobalBuffer_temporal']['R'],
+                    converted_mapping['GlobalBuffer_temporal']['S'],
+                    converted_mapping['GlobalBuffer_spatial']['C'],
+                    converted_mapping['GlobalBuffer_spatial']['M'],
+                    converted_mapping['PEAccuBuffer_spatial']['C'],
+                    converted_mapping['PEAccuBuffer_spatial']['M'],
+                ])
+
+                layer_report['input']['write'] = np.prod([
+                    converted_mapping['DRAM_temporal']['M'],
+                    converted_mapping['DRAM_temporal']['C'],
+                    converted_mapping['DRAM_temporal']['P'],
+                    converted_mapping['DRAM_temporal']['Q'],
+
+                    converted_mapping['GlobalBuffer_temporal']['P'] + converted_mapping['GlobalBuffer_temporal']['R'] - 1,
+                    converted_mapping['GlobalBuffer_temporal']['Q'] + converted_mapping['GlobalBuffer_temporal']['S'] - 1,
+                    converted_mapping['GlobalBuffer_temporal']['C'],
+                    converted_mapping['GlobalBuffer_spatial']['C'],
+                    converted_mapping['PEAccuBuffer_spatial']['C'],
+                ])
+                layer_report['input']['read'] = np.prod([
+                    layer_report['input']['write'],
+                    converted_mapping['GlobalBuffer_temporal']['M'],
+                ])
+
+                layer_report['output']['write'] = np.prod([
+                    converted_mapping['DRAM_temporal']['M'],
+                    converted_mapping['DRAM_temporal']['C'],
+                    converted_mapping['DRAM_temporal']['P'],
+                    converted_mapping['DRAM_temporal']['Q'],
+
+                    converted_mapping['GlobalBuffer_temporal']['M'],
+                    converted_mapping['GlobalBuffer_temporal']['P'],
+                    converted_mapping['GlobalBuffer_temporal']['Q'],
+                    converted_mapping['GlobalBuffer_spatial']['M'],
+                    converted_mapping['PEAccuBuffer_spatial']['M'],
+                ])
+                layer_report['output']['read'] *= converted_mapping['GlobalBuffer_temporal']['C'] - 1
+                layer_report['output']['write'] *= converted_mapping['GlobalBuffer_temporal']['C']
+
+                summary = {'read': 0, 'write': 0}
+                for wr in summary.keys():
+                    for tensor_type in ['weight', 'input', 'output']:
+                        summary[wr] += layer_report[tensor_type][wr] * layer_report[tensor_type]['instance']
+
+                layer_report['summary'] = summary
+                report[layer_name] = layer_report
+        
+        return report
 
     def calc_reticle_power(self):
         pass
