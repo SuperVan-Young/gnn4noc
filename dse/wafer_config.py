@@ -721,12 +721,12 @@ class WaferConfig():
                 predictor = LinearProgrammingPredictor(trace_parser, None)
                 latencies = {
                     "prediction": {},
-                    "theoretical": {},
+                    "computation": {},
                     "transmission": {},
                 }
                 for layer_name in trace_parser.graph_parser.get_layers():
                     latencies["prediction"][layer_name] = int(predictor.run(layer_name))
-                    latencies["theoretical"][layer_name] = int(predictor.get_theoretical_latency(layer_name))
+                    latencies["computation"][layer_name] = int(predictor.get_computation(layer_name))
                     latencies['transmission'][layer_name] = predictor.get_data_transmission(layer_name)
 
                 prediction_path = os.path.join(prediction_root, f"{benchmark_name}.json")

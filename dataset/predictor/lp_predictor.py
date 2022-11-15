@@ -60,16 +60,24 @@ class LinearProgrammingPredictor():
         k = self.trace_parser.spec_parser.get_array_size()
         routers = [dict() for _ in range(k ** 2)]
         finished_pkts = set()
+        weight_pkts = set()  # M spatial unroll on cores?
 
         for u, v, eattr in G.edges(data=True):
             if eattr['edge_type'] != 'data' or len(eattr['pkt']) == 0:
                 continue
+
+            flow_types = {
+                'wsrc': 'weight',
+                'insrc': 'input',
+                'worker': 'output',
+            }
 
             flow_info = {
                 'lpid': eattr['lpid'],
                 'flit': eattr['size'],
                 'cnt': G.nodes[u]['cnt'],
                 'delay': G.nodes[u]['delay'],
+                'flow_type': flow_types[G.nodes[u]['op_type']],
             }
             
             # build a routing tree from hops
@@ -77,6 +85,7 @@ class LinearProgrammingPredictor():
             pid = eattr['pkt'][0]
             if pid in finished_pkts: continue  # debug: multicast pkts only count once
             finished_pkts.add(pid)
+            if G.nodes[u]['op_type'] == 'wsrc': weight_pkts.add(pid)
 
             hops = self.trace_parser.routing_parser.get_routing_hops(u_pe, v_pe, pid)
             routing_tree = {s: [] for s, d in hops}
@@ -104,6 +113,8 @@ class LinearProgrammingPredictor():
                 for flow in flows:
                     credit_stall_factor = self._get_credit_stall_factor(flow['flit'])
                     A_ub[flow['lpid']] += (flow['flit'] + pipeline_stall_factor) * credit_stall_factor
+                    if flow['flow_type'] == 'output':
+                        A_ub[flow['lpid']] /= len(weight_pkts)  # assume we have #M_DRAM_S sinks
                 self.A_ub.append(A_ub)
 
                 bw = self.noc_spec.get_relative_bandwidth(s_pe, d_pe) if self.noc_spec else 1
@@ -248,7 +259,7 @@ class LinearProgrammingPredictor():
 
         return predicted_latency
 
-    def get_theoretical_latency(self, layer_name=None):
+    def get_computation(self, layer_name=None):
         G = self.trace_parser.graph_parser.get_graph(layer_name, batch=0)
         
         latency = 0

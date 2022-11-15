@@ -1,5 +1,5 @@
 gpt2-xl:
-- gpt2-xl_layer1
-- gpt2-xl_layer2
-- gpt2-xl_layer3
-- gpt2-xl_layer4
+- gpt2-xl_layer1  # bigger FC
+- gpt2-xl_layer2  # smaller FC
+# - gpt2-xl_layer3
+# - gpt2-xl_layer4

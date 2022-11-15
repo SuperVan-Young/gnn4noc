@@ -86,8 +86,8 @@ class ResultAnalyzer():
                             # select part of the layers
                             wanted_layers = [
                                 # "dall-e_layer5",
-                                # "dall-e_layer10",
-                                "dall-e_layer11",
+                                "dall-e_layer10",
+                                # "dall-e_layer11",
                                 # "dall-e_layer19",
                                 # "dall-e_layer20",
                                 # "dall-e_layer28",
@@ -97,10 +97,23 @@ class ResultAnalyzer():
                                 "gpt2-xl_layer3",
                                 "gpt2-xl_layer4",
                             ]
-                            prediction = sum([v for k, v in a['prediction'].items() if k in wanted_layers])
-                            theoretical = sum([v for k, v in a['theoretical'].items() if k in wanted_layers])
-                            perfs[dp]['latency'] = prediction 
-                            perfs[dp]['ratio'] = prediction / theoretical
+                            prediction = {k: v for k, v in a['prediction'].items() if k in wanted_layers}
+                            computation = {k: v for k, v in a['computation'].items() if k in wanted_layers}
+                            transmission = {k: max(v['wsrc']['total'], v['insrc']['total'], v['worker']['total']) for k, v in a['transmission'].items() if k in wanted_layers}
+
+                            def get_ratio(pred, comp, trans):
+                                """Return predicted latency vs. theoretical latency ratio.
+                                If the task is computation bounded, return a positive log ratio.
+                                Else, if the task is transmission bounded, return a negative log ratio.
+                                """
+                                if comp > trans:
+                                    return np.log(pred / trans)
+                                else:
+                                    return -np.log(pred / comp)
+
+                            ratio = {k: get_ratio(pred, computation[k], transmission[k]) for k, pred in prediction.items()}
+                            perfs[dp]['latency'] = np.sum(list(prediction.values())) # total latency
+                            perfs[dp]['ratio'] = np.average(list(ratio.values()))  # average latency ratio (doesn't make sense for multiple layers)
                     except:
                         print(f"Warning: error for {dp}, automatically filling with inf")
                         traceback.print_exc()
@@ -111,8 +124,6 @@ class ResultAnalyzer():
         return perfs
 
     def plot_cluster(self, cluster_columns: list, fixed_columns: dict, benchmark='gpt2-xl-tiny', agg='min'):
-        COMP_BOUND = 1.2  # compuration bound
-
         dp_clusters = self._cluster_design_points(cluster_columns, fixed_columns)  # cluster_cols -> dps
         perfs = self._init_perfs(benchmark)  # dp -> perf_dict
         index_to_best_dp = dict()  # cluster_cols -> best dp
@@ -137,9 +148,9 @@ class ResultAnalyzer():
             plt.plot(x, y)
 
             c = np.array([perfs[v]['ratio'] for v, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
-            c = np.log(c)
-            cmap = matplotlib.cm.get_cmap('bone')
-            norm = matplotlib.colors.Normalize(c.min(), c.max())
+            cmap = matplotlib.cm.get_cmap('coolwarm')
+            norm_max = max(np.abs(c.min()), np.abs(c.max()))
+            norm = matplotlib.colors.Normalize(-norm_max, norm_max)
             c = cmap(norm(c.tolist()))
             plt.scatter(x, y, marker='x', color=c)
             plt.xlabel(cluster_columns[0])
@@ -152,9 +163,9 @@ class ResultAnalyzer():
             y = np.log2([k[1] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
             z = np.array([perfs[v]['latency'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
             c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
-            c = np.log(c)
-            cmap = matplotlib.cm.get_cmap('bone')
-            norm = matplotlib.colors.Normalize(c.min(), c.max())
+            cmap = matplotlib.cm.get_cmap('coolwarm')
+            norm_max = max(np.abs(c.min()), np.abs(c.max()))
+            norm = matplotlib.colors.Normalize(-norm_max, norm_max)
             c = cmap(norm(c.tolist()))
             if len(z):
                 ax.bar3d(x, y, 0, 0.25, 0.25, z, color=c)

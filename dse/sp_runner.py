@@ -35,7 +35,8 @@ def run_timeloop_mapper(layer_root, verbose=True):
     - top level arch spec (fetch component spec from FOCUS)
     - constraint spec
     """
-    executable = os.path.join(gc.timeloop_lib_path, 'timeloop-mapper')
+    # executable = os.path.join(gc.timeloop_lib_path, 'timeloop-mapper')
+    executable = 'timeloop-mapper'
 
     arch_specs = []
     arch_specs.append(os.path.join(layer_root, "modified_arch.yaml"))

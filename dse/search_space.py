@@ -134,7 +134,8 @@ class WaferSearchSpace():
                     if len(files) == 2:
                         is_append_dp = False
                         break
-                if is_append_dp: dp_predict.append(config)
+                # if is_append_dp: dp_predict.append(config)
+                dp_predict.append(config)
             
             print(f"Predict: {len(dp_predict)}")
 
@@ -151,9 +152,9 @@ if __name__ == "__main__":
     design_points = parse_design_point_list(gc.design_points_path)
     search_space = WaferSearchSpace(design_points)
     search_space.run(
-        dump_config_spec=True, 
-        invoke_timeloop_mapper=True, 
-        invoke_timeloop_model=True, 
-        invoke_focus=True, 
+        dump_config_spec=False, 
+        invoke_timeloop_mapper=False, 
+        invoke_timeloop_model=False, 
+        invoke_focus=False, 
         predict=True, 
         verbose=True, debug=True) 

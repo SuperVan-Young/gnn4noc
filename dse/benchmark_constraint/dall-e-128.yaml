@@ -1,11 +1,15 @@
 dall-e-128:
-- dall-e_layer2
-- dall-e_layer3
-- dall-e_layer4
-- dall-e_layer5
-- dall-e_layer10
-- dall-e_layer11
-- dall-e_layer19
-- dall-e_layer20
-- dall-e_layer28
-- dall-e_layer29
+# P=Q=256
+- dall-e_layer4  # 3x3 conv, 64->64
+- dall-e_layer5  # 1x1 conv, 64->256
+# P=Q=128
+- dall-e_layer13  # 3x3 conv, 128->128
+- dall-e_layer14  # 1x1 conv, 128->512
+# P=Q=64
+- dall-e_layer22  # 3x3 conv, 256->256
+- dall-e_layer23  # 1x1 conv, 256->1024
+- dall-e_layer24  # 3x3 conv, 1024->256
+# P=Q=32
+- dall-e_layer42 # 3x3 conv, 512->512
+- dall-e_layer43 # 3x3 conv, 512->2048
+- dall-e_layer44 # 1x1 conv, 2048->512
