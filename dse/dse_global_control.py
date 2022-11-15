@@ -27,10 +27,22 @@ def get_spec_path(taskname):
     path = os.path.join(simulator_root, taskname, "spatial_spec")
     return path
 
+# --------------------- runtime control -------------------------
+
+# Should not put experimental parameters in control!
+# This breaks modularization, making codes difficult to parallel!
+
+num_effective_model = 16   # how many model on 1 wafer  # TODO: 2,4,8,16
+
+timeloop_mapper_timeout = 1
+
+multiprocess_cores = 16
+
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))
 
-experiment_date = '1115_2'
+experiment_date = f"cerebras_{num_effective_model}"
+# experiment_date = "test"
 
 task_root = os.path.join(dse_root, "tasks")
 if not os.path.exists(task_root):
@@ -46,12 +58,5 @@ fig_root = os.path.join(fig_root, experiment_date)
 if not os.path.exists(fig_root):
     os.mkdir(fig_root)
 
-design_points_path = os.path.join(dse_root, "design_points", "design_points_mini.list")
+design_points_path = os.path.join(dse_root, "design_points", "design_points_cerebras.list")
 assert os.path.exists(design_points_path)
-# --------------------- control -------------------------
-
-num_effective_model = 2   # how many model on 1 wafer  # TODO: 2,4,8,16
-
-timeloop_mapper_timeout = 1
-
-multiprocess_cores = 16

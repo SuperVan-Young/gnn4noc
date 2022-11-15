@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import matplotlib
 from search_space import parse_design_point_list
 import traceback
+import yaml
+import itertools
 
 class ResultAnalyzer():
 
@@ -49,7 +51,7 @@ class ResultAnalyzer():
             
         return cur_cluster
 
-    def _init_perfs(self, benchmark='gpt2-xl-tiny'):
+    def _init_perfs(self, benchmark, wanted_layers: list):
         perfs = {k: dict() for k in self.design_points}  # dp: {layer: latency}
 
         for dp in self.design_points:
@@ -84,22 +86,9 @@ class ResultAnalyzer():
                         with open(prediction_path, 'r') as f:
                             a = json.load(f)
                             # select part of the layers
-                            wanted_layers = [
-                                # "dall-e_layer5",
-                                "dall-e_layer10",
-                                # "dall-e_layer11",
-                                # "dall-e_layer19",
-                                # "dall-e_layer20",
-                                # "dall-e_layer28",
-                                # "dall-e_layer29",
-                                "gpt2-xl_layer1",
-                                "gpt2-xl_layer2",
-                                "gpt2-xl_layer3",
-                                "gpt2-xl_layer4",
-                            ]
                             prediction = {k: v for k, v in a['prediction'].items() if k in wanted_layers}
                             computation = {k: v for k, v in a['computation'].items() if k in wanted_layers}
-                            transmission = {k: max(v['wsrc']['total'], v['insrc']['total'], v['worker']['total']) for k, v in a['transmission'].items() if k in wanted_layers}
+                            transmission = {k: max(v['wsrc']['total'], v['insrc']['total'], v['worker']['total'] / v['worker']['cnt']) for k, v in a['transmission'].items() if k in wanted_layers}
 
                             def get_ratio(pred, comp, trans):
                                 """Return predicted latency vs. theoretical latency ratio.
@@ -123,9 +112,9 @@ class ResultAnalyzer():
 
         return perfs
 
-    def plot_cluster(self, cluster_columns: list, fixed_columns: dict, benchmark='gpt2-xl-tiny', agg='min'):
+    def plot_cluster(self, cluster_columns: list, fixed_columns: dict, benchmark, wanted_layers: list):
         dp_clusters = self._cluster_design_points(cluster_columns, fixed_columns)  # cluster_cols -> dps
-        perfs = self._init_perfs(benchmark)  # dp -> perf_dict
+        perfs = self._init_perfs(benchmark, wanted_layers)  # dp -> perf_dict
         index_to_best_dp = dict()  # cluster_cols -> best dp
 
         # for each cluster, find the best dp according to some metric
@@ -143,6 +132,7 @@ class ResultAnalyzer():
 
         dim = len(cluster_columns)
         if dim == 1:
+            raise NotImplementedError
             x = [k for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf]
             y = [perfs[v]['latency'] for v in index_to_best_dp.values() if perfs[v]['ratio'] != np.inf]
             plt.plot(x, y)
@@ -159,10 +149,13 @@ class ResultAnalyzer():
         elif dim == 2:
             ax = plt.axes(projection='3d')
 
-            x = np.log2([k[0] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
-            y = np.log2([k[1] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
-            z = np.array([perfs[v]['latency'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
-            c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
+            def is_valid_perf(perf):
+                return perf['ratio'] != np.inf
+
+            x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            y = np.log2([k[1] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            z = np.array([perfs[v]['latency'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
             cmap = matplotlib.cm.get_cmap('coolwarm')
             norm_max = max(np.abs(c.min()), np.abs(c.max()))
             norm = matplotlib.colors.Normalize(-norm_max, norm_max)
@@ -178,13 +171,14 @@ class ResultAnalyzer():
         else:
             raise RuntimeError(f"Invalid dim {dim}")
 
-        fig_title = benchmark + "_" + "_".join(cluster_columns)
-        fig_title += "_" + "_".join([f"{k}{v}" for k, v in fixed_columns.items()])
-        fig_title += f"_agg_{agg}"
+        fig_title = " ".join([
+            "-".join(cluster_columns),
+            "-".join([f"{k}={v}" for k, v in fixed_columns.items()]),
+            "-".join(wanted_layers),
+        ])
         plt.title(fig_title)
 
         fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
-
         plt.savefig(fig_path)
         plt.clf()
 
@@ -193,21 +187,17 @@ if __name__ == "__main__":
     design_points = parse_design_point_list(gc.design_points_path)
     design_points = [tuple(i) for i in design_points]
     analyzer = ResultAnalyzer(design_points)
-    
-    # single variable, other variable choose the best setting
-    # for prop in ["core_num_mac", "core_buffer_bw", "core_buffer_size", "core_noc_bw"]:
-    #     cluster_columns = [prop]
-    #     fixed_columns = dict()
-    #     try:
-    #         analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="gpt2-xl")
-    #         analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark="dall-e-128")
-    #     except:
-    #         print(f"error: {cluster_columns} {fixed_columns}")
-    #         # traceback.print_exc()
-    #         continue
+
+    benchmark_constraints = []
+    for root, _, files in os.walk(os.path.join(gc.dse_root, 'benchmark_constraint')):
+        for file in files:
+            with open(os.path.join(root, file), 'r') as f:
+                bc = yaml.load(f, Loader=yaml.FullLoader)
+                benchmark_constraints.append(bc)
+        break
 
     # for fixed buffer size, perf <- mac and noc?
-    for core_buffer_size in 2 ** np.arange(5, 12):
+    for bc, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):
         cluster_columns = [
             'core_num_mac',
             'core_noc_bw',
@@ -217,34 +207,16 @@ if __name__ == "__main__":
             # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
         }
         try:
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl')
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
+            for benchmark, layers in bc.items():
+                for wanted_layer in layers:
+                    analyzer.plot_cluster(cluster_columns, fixed_columns, benchmark=benchmark, wanted_layers=[wanted_layer])
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
             traceback.print_exc()
             continue
 
-    # for fixed buffer size, perf <- mac and noc?
-    for core_noc_bw in 2 ** np.arange(5, 12):
-        for core_buffer_size in 2 ** np.arange(5, 12):
-            cluster_columns = [
-                'core_num_mac',
-            ]
-            fixed_columns = {
-                'core_noc_bw': core_noc_bw, 
-                'core_buffer_size': core_buffer_size,
-                # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
-            }
-            try:
-                analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl')
-                analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
-            except:
-                print(f"error: {cluster_columns} {fixed_columns}")
-                # traceback.print_exc()
-                continue
-
     # for fixed noc, perf <- mac and buf?
-    for core_noc_bw in 2 ** np.arange(5, 15):
+    for bc, core_noc_bw  in itertools.product(benchmark_constraints, 2 ** np.arange(5, 15)):
         cluster_columns = [
             'core_num_mac',
             'core_buffer_size',
@@ -254,9 +226,10 @@ if __name__ == "__main__":
             # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
         }
         try:
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='gpt2-xl')
-            analyzer.plot_cluster(cluster_columns, fixed_columns, agg='min', benchmark='dall-e-128')
+            for benchmark, layers in bc.items():
+                for wanted_layer in layers:
+                    analyzer.plot_cluster(cluster_columns, fixed_columns, benchmark=benchmark, wanted_layers=[wanted_layer])
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
-            # traceback.print_exc()
+            traceback.print_exc()
             continue
