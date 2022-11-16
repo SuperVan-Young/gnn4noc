@@ -20,52 +20,49 @@ class PowerPredictor():
         self.core_array_h = kwargs['core_array_h']
         self.core_array_w = kwargs['core_array_w']
 
-    def run(self):
+    def run(self, benchmark_path, full_benchmark_path):
         """Give a detailed report of arch power estimation.
         """
+        assert os.path.exists(benchmark_path)
+        assert os.path.exists(full_benchmark_path)
+
         result = dict()
-        result['mac'] = self.calc_mac_power()
-        result['noc'] = self.calc_noc_power()
-        result['sram'] = self.calc_sram_power()
-        result['reticle'] = self.calc_reticle_power()
+        result['mac'] = self.calc_mac_power(benchmark_path)
+        result['noc'] = self.calc_noc_power(benchmark_path)
+        result['sram'] = self.calc_sram_power(benchmark_path)
+        result['reticle'] = self.calc_reticle_power(full_benchmark_path)
         return result
 
 
-    def calc_mac_power(self):
+    def calc_mac_power(self, benchmark_path):
         model_pattern = re.compile(r"^(.*)_layer\d+$")
         dims = ['C', 'M', 'N', 'P', 'Q', 'R', 'S']
         report = dict()
 
-        benchmark_root = os.path.join(self.task_root, 'benchmark')
-        for _, __, files in os.walk(benchmark_root):
-            for file in files:
-                with open(os.path.join(benchmark_root, file), 'r') as f:
-                    bm = yaml.load(f, Loader=yaml.FullLoader)
-                for model_full_name, layers in bm.items():
-                    for layer_name, cores in layers.items():
-                        model_name = model_pattern.match(layer_name).group(1)
-                        layer_spec_path = os.path.join(gc.database_root, model_name, f"{layer_name}.yaml")
-                        assert os.path.exists(layer_spec_path)
-                        with open(layer_spec_path, 'r') as f:
-                            layer_spec = yaml.load(f, Loader=yaml.FullLoader)
-                        mac_total = np.prod([v for k, v in layer_spec['problem']['instance'] if k in dims])
-                        report[layer_name] = mac_total
-            break
+        with open(benchmark_path, 'r') as f:
+            bm = yaml.load(f, Loader=yaml.FullLoader)
+        for model_full_name, layers in bm.items():
+            for layer in layers:
+                for layer_name, cores in layer.items():
+                    model_name = model_pattern.match(layer_name).group(1)
+                    layer_spec_path = os.path.join(gc.database_root, model_name, f"{layer_name}.yaml")
+                    assert os.path.exists(layer_spec_path)
+                    with open(layer_spec_path, 'r') as f:
+                        layer_spec = yaml.load(f, Loader=yaml.FullLoader)
+                    mac_total = np.prod([v for k, v in layer_spec['problem']['instance'].items() if k in dims])
+                    report[layer_name] = int(mac_total)
         
         return report
 
 
-    def calc_noc_power(self):
+    def calc_noc_power(self, benchmark_path):
         report = dict()
 
         benchmark_names = []
-        benchmark_root = os.path.join(self.task_root, 'benchmark')
-        for _, __, files in os.walk(benchmark_root):
-            for file in files:
-                with open(os.path.join(benchmark_root, file), 'r') as f:
-                    bm = yaml.load(f, Loader=yaml.FullLoader)
-                for model_full_name, layers in bm.items():
-                    benchmark_names.append(benchmark_names)
+        with open(benchmark_path, 'r') as f:
+            bm = yaml.load(f, Loader=yaml.FullLoader)
+        for model_full_name, layers in bm.items():
+            benchmark_names.append(model_full_name)
                     
         for benchmark_name in benchmark_names:
             taskname = f"{benchmark_name}_b1w{self.flit_size}_{self.core_array_size}x{self.core_array_size}"
@@ -84,7 +81,7 @@ class PowerPredictor():
             )
 
             for layer_name in trace_parser.graph_parser.get_layers():
-                G = trace_parser.get_graph(layer_name, batch=0)
+                G = trace_parser.graph_parser.get_graph(layer_name, batch=0)
 
                 # copied from lp predictor
                 pkt_infos = dict()
@@ -100,7 +97,7 @@ class PowerPredictor():
                         pkt_infos[pid]['channels'] += 1
                         continue
 
-                    hops = self.trace_parser.routing_parser.get_routing_hops(u_pe, v_pe, pid)
+                    hops = trace_parser.routing_parser.get_routing_hops(u_pe, v_pe, pid)
                     
                     pkt_infos[pid] = {
                         'channels': len(hops) + 2,  # 1 inject + 1 eject
@@ -109,106 +106,121 @@ class PowerPredictor():
                     }
 
                 total_flits = np.sum([info['channels'] * info['cnt'] * info['flit'] for pid, info in pkt_infos.items()])
-                report[layer_name] = total_flits
+                report[layer_name] = int(total_flits)
 
         return report
 
 
-    def calc_sram_power(self):
+    def calc_sram_power(self, benchmark_path):
         """Return a timeloop-style report of buffer actions. 
         """
         report = dict()
 
-        layer_pattern = re.compile(r"^(.*)_\d+^")
+        layer_pattern = re.compile(r"^(.*)_\d+$")
 
-        layers_root = os.path.join(gc.task_root, 'layers')
-        for _, dirs, __ in os.walk(layers_root):
-            for layer_dir in dirs:
-                layer_name = layer_pattern.match(layer_dir).group(1)
-                layer_report = ['weight', 'input', 'output']
-                layer_report = {k: {
-                    'instance': 0,
-                    'read': 0,
-                    'write': 0,
-                } for k in layer_report}
+        # get all layers
+        all_layers = []
+        with open(benchmark_path, 'r') as f:
+            bm = yaml.load(f, Loader=yaml.FullLoader)
+        for model_name, layers in bm.items():
+            for layer in layers:
+                for layer_name, core in layer.items():
+                    all_layers.append(f"{layer_name}_{core}")
 
-                dump_mapping_path = os.path.join(layers_root, layer_dir, 'dump_mapping.yaml')
-                with open(dump_mapping_path, 'r') as f:
-                    dump_mapping = yaml.load(f, Loader=yaml.FullLoader)
 
-                converted_mapping = dict()
-                for mapping_item in dump_mapping:
-                    target = f"{mapping_item['target']}_{mapping_item['type']}"
-                    factors = " ".split(mapping_item['factors'])
-                    factors = ["=".split(v) for v in factors]
-                    factors = {v[0]: int(v[1]) for v in factors}
-                    converted_mapping[target] = factors
-                
-                num_utilized_cores = np.prod(list(converted_mapping['DRAM_temporal'].values()))
-                for k in layer_report.keys():
-                    layer_report[k] = num_utilized_cores
+        layers_root = os.path.join(self.task_root, 'layers')
+        for layer_dir in all_layers:
+            layer_name = layer_pattern.match(layer_dir).group(1)
+            layer_report = ['weight', 'input', 'output']
+            layer_report = {k: {
+                'instance': 0,
+                'read': 0,
+                'write': 0,
+            } for k in layer_report}
 
-                layer_report['weight']['read'] = layer_report['weight']['write'] = np.prod([
-                    converted_mapping['DRAM_temporal']['C'],
-                    converted_mapping['DRAM_temporal']['M'],
+            dump_mapping_path = os.path.join(layers_root, layer_dir, 'dump_mapping.yaml')
+            with open(dump_mapping_path, 'r') as f:
+                dump_mapping = yaml.load(f, Loader=yaml.FullLoader)
 
-                    converted_mapping['GlobalBuffer_temporal']['C'],
-                    converted_mapping['GlobalBuffer_temporal']['M'],
-                    converted_mapping['GlobalBuffer_temporal']['R'],
-                    converted_mapping['GlobalBuffer_temporal']['S'],
-                    converted_mapping['GlobalBuffer_spatial']['C'],
-                    converted_mapping['GlobalBuffer_spatial']['M'],
-                    converted_mapping['PEAccuBuffer_spatial']['C'],
-                    converted_mapping['PEAccuBuffer_spatial']['M'],
-                ])
+            converted_mapping = dict()
+            for mapping_item in dump_mapping['mapping']:
+                if not 'factors' in mapping_item.keys(): continue
+                target = f"{mapping_item['target']}_{mapping_item['type']}"
+                factors = mapping_item['factors'].split(" ")
+                factors = [v.split("=") for v in factors]
+                factors = {v[0]: int(v[1]) for v in factors}
+                converted_mapping[target] = factors
+            
+            num_utilized_cores = np.prod(list(converted_mapping['DRAM_spatial'].values()))
+            for k in layer_report.keys():
+                layer_report[k]['instance'] = num_utilized_cores
 
-                layer_report['input']['write'] = np.prod([
-                    converted_mapping['DRAM_temporal']['M'],
-                    converted_mapping['DRAM_temporal']['C'],
-                    converted_mapping['DRAM_temporal']['P'],
-                    converted_mapping['DRAM_temporal']['Q'],
+            layer_report['weight']['read'] = np.prod([
+                converted_mapping['DRAM_temporal']['C'],
+                converted_mapping['DRAM_temporal']['M'],
 
-                    converted_mapping['GlobalBuffer_temporal']['P'] + converted_mapping['GlobalBuffer_temporal']['R'] - 1,
-                    converted_mapping['GlobalBuffer_temporal']['Q'] + converted_mapping['GlobalBuffer_temporal']['S'] - 1,
-                    converted_mapping['GlobalBuffer_temporal']['C'],
-                    converted_mapping['GlobalBuffer_spatial']['C'],
-                    converted_mapping['PEAccuBuffer_spatial']['C'],
-                ])
-                layer_report['input']['read'] = np.prod([
-                    layer_report['input']['write'],
-                    converted_mapping['GlobalBuffer_temporal']['M'],
-                ])
+                converted_mapping['GlobalBuffer_temporal']['C'],
+                converted_mapping['GlobalBuffer_temporal']['M'],
+                converted_mapping['GlobalBuffer_temporal']['R'],
+                converted_mapping['GlobalBuffer_temporal']['S'],
+                converted_mapping['GlobalBuffer_spatial']['C'],
+                converted_mapping['GlobalBuffer_spatial']['M'],
+                converted_mapping['PEAccuBuffer_spatial']['C'],
+                converted_mapping['PEAccuBuffer_spatial']['M'],
+            ])
+            layer_report['weight']['write'] = layer_report['weight']['read']
 
-                layer_report['output']['write'] = np.prod([
-                    converted_mapping['DRAM_temporal']['M'],
-                    converted_mapping['DRAM_temporal']['C'],
-                    converted_mapping['DRAM_temporal']['P'],
-                    converted_mapping['DRAM_temporal']['Q'],
+            layer_report['input']['write'] = np.prod([
+                converted_mapping['DRAM_temporal']['M'],
+                converted_mapping['DRAM_temporal']['C'],
+                converted_mapping['DRAM_temporal']['P'],
+                converted_mapping['DRAM_temporal']['Q'],
 
-                    converted_mapping['GlobalBuffer_temporal']['M'],
-                    converted_mapping['GlobalBuffer_temporal']['P'],
-                    converted_mapping['GlobalBuffer_temporal']['Q'],
-                    converted_mapping['GlobalBuffer_spatial']['M'],
-                    converted_mapping['PEAccuBuffer_spatial']['M'],
-                ])
-                layer_report['output']['read'] *= converted_mapping['GlobalBuffer_temporal']['C'] - 1
-                layer_report['output']['write'] *= converted_mapping['GlobalBuffer_temporal']['C']
+                converted_mapping['GlobalBuffer_temporal']['P'] + converted_mapping['GlobalBuffer_temporal']['R'] - 1,
+                converted_mapping['GlobalBuffer_temporal']['Q'] + converted_mapping['GlobalBuffer_temporal']['S'] - 1,
+                converted_mapping['GlobalBuffer_temporal']['C'],
+                converted_mapping['GlobalBuffer_spatial']['C'],
+                converted_mapping['PEAccuBuffer_spatial']['C'],
+            ])
+            layer_report['input']['read'] = np.prod([
+                layer_report['input']['write'],
+                converted_mapping['GlobalBuffer_temporal']['M'],
+            ])
 
-                summary = {'read': 0, 'write': 0}
-                for wr in summary.keys():
-                    for tensor_type in ['weight', 'input', 'output']:
-                        summary[wr] += layer_report[tensor_type][wr] * layer_report[tensor_type]['instance']
+            layer_report['output']['write'] = np.prod([
+                converted_mapping['DRAM_temporal']['M'],
+                converted_mapping['DRAM_temporal']['C'],
+                converted_mapping['DRAM_temporal']['P'],
+                converted_mapping['DRAM_temporal']['Q'],
 
-                layer_report['summary'] = summary
-                report[layer_name] = layer_report
+                converted_mapping['GlobalBuffer_temporal']['M'],
+                converted_mapping['GlobalBuffer_temporal']['P'],
+                converted_mapping['GlobalBuffer_temporal']['Q'],
+                converted_mapping['GlobalBuffer_spatial']['M'],
+                converted_mapping['PEAccuBuffer_spatial']['M'],
+            ])
+            layer_report['output']['read'] *= converted_mapping['GlobalBuffer_temporal']['C'] - 1
+            layer_report['output']['write'] *= converted_mapping['GlobalBuffer_temporal']['C']
+
+            summary = {'read': 0, 'write': 0}
+            for wr in summary.keys():
+                for tensor_type in ['weight', 'input', 'output']:
+                    summary[wr] += layer_report[tensor_type][wr] * layer_report[tensor_type]['instance']
+
+            layer_report['summary'] = summary
+
+            # JSON cannot serialize int64, dumbass, so I have to convert it myself
+            for k in layer_report.keys():
+                for l in layer_report[k].keys():
+                    layer_report[k][l] = int(layer_report[k][l])
         
+            report[layer_name] = layer_report
         return report
 
-    def calc_reticle_power(self):
+    def calc_reticle_power(self, full_benchmark_path):
         """Inter-reticle power
         Put layers in one reticle greedily until a reticle cannot fit.
         """
-        report = dict()
 
         def get_input_size(layer_name):
             model_pattern = re.compile(r"^(.*)_layer\d+$")
@@ -218,34 +230,28 @@ class PowerPredictor():
                 layer_spec = yaml.load(f, Loader=yaml.FullLoader)
             
             instance = layer_spec['problem']['instance']
-            input_size = np.prod([instance[k] for k in ['C', 'P', 'Q']])
+            input_size = int(np.prod([instance[k] for k in ['C', 'P', 'Q']]))
             return input_size
             
 
-        benchmark_root = os.path.join(self.task_root, 'benchmark_full')
-        for _, __, files in os.walk(benchmark_root):
-            for file in files:
-                with open(os.path.join(benchmark_root, file), 'r') as f:
-                    bm = yaml.load(f, Loader=yaml.FullLoader)
+        with open(full_benchmark_path, 'r') as f:
+            bm = yaml.load(f, Loader=yaml.FullLoader)
 
-                layer2core = dict()
-                inter_reticle_transmission = dict()
-                utilized_core_counter = 0
-                model_names = []
+        layer2core = dict()
+        inter_reticle_transmission = dict()
+        utilized_core_counter = 0
+        model_names = []
 
-                for model, layers in bm.items():
-                    model_names.append(model)
-                    for layer in layers:
-                        for layer_name, core in layer.items():
-                            layer2core[layer_name] = core
-                for layer_name, core in layer2core.items():
-                    if utilized_core_counter + core > self.core_array_h * self.core_array_w:
-                        utilized_core_counter = core
-                        inter_reticle_transmission[layer_name] = get_input_size(layer_name)
-                    else:
-                        utilized_core_counter += core
-        
-                model_name = "_".join(model_names)
-                report[model_name] = inter_reticle_transmission
-        
-        return report
+        for model, layers in bm.items():
+            model_names.append(model)
+            for layer in layers:
+                for layer_name, core in layer.items():
+                    layer2core[layer_name] = core
+        for layer_name, core in layer2core.items():
+            if utilized_core_counter + core > self.core_array_h * self.core_array_w:
+                utilized_core_counter = core
+                inter_reticle_transmission[layer_name] = get_input_size(layer_name)
+            else:
+                utilized_core_counter += core
+ 
+        return inter_reticle_transmission

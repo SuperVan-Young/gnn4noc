@@ -335,20 +335,33 @@ class WaferConfig():
                     spec_path=spec_path
                 )
 
-                predictor = LinearProgrammingPredictor(trace_parser, None)
-                latencies = {
+                perf_predictor = LinearProgrammingPredictor(trace_parser, None)
+                report = {
                     "prediction": {},
                     "computation": {},
                     "transmission": {},
                 }
                 for layer_name in trace_parser.graph_parser.get_layers():
-                    latencies["prediction"][layer_name] = int(predictor.run(layer_name))
-                    latencies["computation"][layer_name] = int(predictor.get_computation(layer_name))
-                    latencies['transmission'][layer_name] = predictor.get_data_transmission(layer_name)
+                    report["prediction"][layer_name] = int(perf_predictor.run(layer_name))
+                    report["computation"][layer_name] = int(perf_predictor.get_computation(layer_name))
+                    report['transmission'][layer_name] = perf_predictor.get_data_transmission(layer_name)
+
+                power_predictor = PowerPredictor(
+                    task_root = self.task_root,
+                    core_array_size=core_array_size,
+                    flit_size = flit_size,
+                    core_array_h = self.core_array_h,
+                    core_array_w = self.core_array_w,
+                )
+                power_report = power_predictor.run(
+                    benchmark_path=benchmark_path,
+                    full_benchmark_path=os.path.join(self.task_root, 'benchmark_full', file),
+                )
+                report['power'] = power_report
 
                 prediction_path = os.path.join(prediction_root, f"{benchmark_name}.json")
                 with open(prediction_path, "w") as f:
-                    f.write(json.dumps(latencies, indent=4))
+                    f.write(json.dumps(report, indent=4))
             break
 
 if __name__ == "__main__":
