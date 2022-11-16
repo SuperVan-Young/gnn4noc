@@ -85,6 +85,8 @@ class LinearProgrammingPredictor():
             pid = eattr['pkt'][0]
             if pid in finished_pkts:
                 # for multicast packets, add its ejection channel
+                if -2 not in routers[v_pe].keys():
+                    routers[v_pe][-2] = []
                 routers[v_pe][-2].append(flow_info)
                 continue
             finished_pkts.add(pid)
@@ -94,6 +96,8 @@ class LinearProgrammingPredictor():
             routing_tree = {s: [] for s, d in hops}
             for s, d in hops:
                 routing_tree[s].append(d)
+            if v_pe not in routing_tree.keys():
+                routing_tree[v_pe] = []
             routing_tree[v_pe].append(-2)
 
             for s_pe, ds in routing_tree.items():

@@ -124,6 +124,10 @@ class UnrollingConstraint():
                 continue
 
             # check if this is a better factor
+            # make sure C and M gets even
+            if ('C' in dim_names or 'M' in dim_names) and np.prod(factors) % 2 != 0:
+                continue
+
             # factors at front of the list have higher priority and will be unrolled first
             if np.prod(factors) > np.prod(best_factors):
                 best_factors = factors

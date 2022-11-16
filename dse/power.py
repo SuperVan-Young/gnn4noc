@@ -16,6 +16,10 @@ class PowerPredictor():
         self.core_array_size = kwargs['core_array_size']
         self.flit_size = kwargs['flit_size']
 
+        # actual core array size
+        self.core_array_h = kwargs['core_array_h']
+        self.core_array_w = kwargs['core_array_w']
+
     def run(self):
         """Give a detailed report of arch power estimation.
         """
@@ -201,5 +205,47 @@ class PowerPredictor():
         return report
 
     def calc_reticle_power(self):
-        pass
+        """Inter-reticle power
+        Put layers in one reticle greedily until a reticle cannot fit.
+        """
+        report = dict()
 
+        def get_input_size(layer_name):
+            model_pattern = re.compile(r"^(.*)_layer\d+$")
+            model_name = model_pattern.match(layer_name).group(1)
+            layer_spec_path = os.path.join(gc.database_root, model_name, f"{layer_name}.yaml")
+            with open(layer_spec_path, 'r') as f:
+                layer_spec = yaml.load(f, Loader=yaml.FullLoader)
+            
+            instance = layer_spec['problem']['instance']
+            input_size = np.prod([instance[k] for k in ['C', 'P', 'Q']])
+            return input_size
+            
+
+        benchmark_root = os.path.join(self.task_root, 'benchmark_full')
+        for _, __, files in os.walk(benchmark_root):
+            for file in files:
+                with open(os.path.join(benchmark_root, file), 'r') as f:
+                    bm = yaml.load(f, Loader=yaml.FullLoader)
+
+                layer2core = dict()
+                inter_reticle_transmission = dict()
+                utilized_core_counter = 0
+                model_names = []
+
+                for model, layers in bm.items():
+                    model_names.append(model)
+                    for layer in layers:
+                        for layer_name, core in layer.items():
+                            layer2core[layer_name] = core
+                for layer_name, core in layer2core.items():
+                    if utilized_core_counter + core > self.core_array_h * self.core_array_w:
+                        utilized_core_counter = core
+                        inter_reticle_transmission[layer_name] = get_input_size(layer_name)
+                    else:
+                        utilized_core_counter += core
+        
+                model_name = "_".join(model_names)
+                report[model_name] = inter_reticle_transmission
+        
+        return report

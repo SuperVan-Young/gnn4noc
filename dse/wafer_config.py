@@ -13,6 +13,7 @@ from noc_spec import NoCSpec
 import dse_global_control as gc
 from sp_runner import run_focus, run_timeloop_mapper, run_timeloop_model
 from scheduling import UnrollingConstraint
+from power import PowerPredictor
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -61,6 +62,7 @@ class WaferConfig():
             self._dump_arch_config()
             self._dump_constraints_config()
             self._dump_modified_arch_config()
+            print(f"{self._get_config_briefing()}: Finished dumping benchmark")
 
         if invoke_timeloop_mapper:
             if verbose: print(f"{self._get_config_briefing()}: Running timeloop mapper")
