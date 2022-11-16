@@ -318,7 +318,12 @@ class WaferConfig():
                 core_array_size = int(np.sqrt(np.sum([get_layer_num_core(l) for l in benchmark_layers]))) + 2  # eee, cannot run too big
                 flit_size = self.core_noc_bw
                 timeloop_buffer_path = os.path.join(self.task_root, "layers")
-                if invoke_focus: run_focus(benchmark_path, core_array_size, flit_size, mode, timeloop_buffer_path, verbose=False, debug=False, timeout=3600)
+                return_code = 0
+                if invoke_focus:
+                    return_code = run_focus(benchmark_path, core_array_size, flit_size, mode, timeloop_buffer_path, verbose=False, debug=False, timeout=3600)
+
+                if return_code != 0:
+                    raise RuntimeError("FOCUS encountering errors, data no longer valid.")
 
                 # trace parser
                 taskname = f"{benchmark_name}_b1w{flit_size}_{core_array_size}x{core_array_size}"
@@ -366,15 +371,15 @@ class WaferConfig():
 
 if __name__ == "__main__":
     wafer_config = WaferConfig(
-        core_num_mac = 64,
-        core_buffer_bw = 2048,
-        core_buffer_size = 512,
+        core_num_mac = 256,
+        core_buffer_bw = 8192,
+        core_buffer_size = 1024,
 
         core_noc_bw = 4096,
         core_noc_vc = 4,
         core_noc_buffer_size = 4,
-        core_array_h = 18,
-        core_array_w = 19,
+        core_array_h = 17,
+        core_array_w = 11,
 
         reticle_bw = 1,
         reticle_array_h = 7, 

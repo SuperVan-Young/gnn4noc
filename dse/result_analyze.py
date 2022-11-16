@@ -104,8 +104,8 @@ class ResultAnalyzer():
                             perfs[dp]['latency'] = np.sum(list(prediction.values())) # total latency
                             perfs[dp]['ratio'] = np.average(list(ratio.values()))  # average latency ratio (doesn't make sense for multiple layers)
                     except:
-                        print(f"Warning: error for {dp}, automatically filling with inf")
-                        traceback.print_exc()
+                        # print(f"Warning: error for {dp}, automatically filling with inf")
+                        # traceback.print_exc()
                         perfs[dp]['latency'] = np.inf
                         perfs[dp]['ratio'] = np.inf
                 break
@@ -163,6 +163,12 @@ class ResultAnalyzer():
             if len(z):
                 ax.bar3d(x, y, 0, 0.25, 0.25, z, color=c)
 
+            print(cluster_columns, fixed_columns, wanted_layers, len(z), max(z), min(z))
+            if min(z) == 0:
+                for k, v in index_to_best_dp.items():
+                    if perfs[v]['latency'] == 0:
+                        print(k, v)
+
             ax.view_init(elev=33, azim=66)
             ax.set_xlabel(f"{cluster_columns[0]} (log)")
             ax.set_ylabel(f"{cluster_columns[1]} (log)")
@@ -216,7 +222,7 @@ if __name__ == "__main__":
             continue
 
     # for fixed noc, perf <- mac and buf?
-    for bc, core_noc_bw  in itertools.product(benchmark_constraints, 2 ** np.arange(5, 15)):
+    for bc, core_noc_bw  in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):
         cluster_columns = [
             'core_num_mac',
             'core_buffer_size',

@@ -134,6 +134,7 @@ class WaferSearchSpace():
                     if len(files) == 2:
                         is_append_dp = False
                         break
+                # rerun or not
                 # if is_append_dp: dp_predict.append(config)
                 dp_predict.append(config)
             
@@ -155,6 +156,6 @@ if __name__ == "__main__":
         dump_config_spec=False, 
         invoke_timeloop_mapper=False, 
         invoke_timeloop_model=False, 
-        invoke_focus=False, 
+        invoke_focus=True, 
         predict=True, 
         verbose=True, debug=True) 

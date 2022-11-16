@@ -305,7 +305,7 @@ class LinearProgrammingPredictor():
             if pid in finished_pids: continue
             finished_pids.add(pid)
             srcs_info[src_type]['flit'] = eattr['size']
-            srcs_info[src_type]['cnt'] = max(G.nodes[u]['cnt'], srcs_info[src_type]['cnt'])
+            srcs_info[src_type]['cnt'] = int(max(G.nodes[u]['cnt'], srcs_info[src_type]['cnt']))
             srcs_info[src_type]['unicast'] += 1
         
         for src_type in ['wsrc', 'insrc', 'worker']:
