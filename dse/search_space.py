@@ -12,11 +12,12 @@ def parse_design_point_list(list_path):
         for line in f:
             l = line.strip('[]\n').split(',')
             l = [float(s) for s in l]
+            l = [int(s) for s in l]
             design_points.append(l)
     return design_points
 
 def parse_design_point(dp):
-    core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = [int(s) for s in dp]
+    core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = dp
     return {
         "core_num_mac":  core_num_mac, 
         "core_buffer_bw":  core_buffer_bw, 

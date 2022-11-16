@@ -322,5 +322,5 @@ class PowerAnalyzer():
     def calc_reticle_power(self, prediction):
         total_data = np.sum([v for k, v in prediction['power']['reticle'].items()])
         total_latency = self._get_total_latency(prediction)
-        reticle_dynamic = total_data * self.reticle_channel_energy / total_latency * self.frequency * 1e12
+        reticle_dynamic = total_data * self.reticle_channel_energy * self.bitwidth / total_latency * self.frequency * 1e12
         return reticle_dynamic
