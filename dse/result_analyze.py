@@ -4,7 +4,7 @@ import json
 import dse_global_control as gc
 import matplotlib.pyplot as plt
 import matplotlib
-from search_space import parse_design_point_list
+from search_space import parse_design_point_list, parse_design_point
 import traceback
 import yaml
 import itertools
@@ -121,6 +121,9 @@ class ResultAnalyzer():
         def get_better_dp(a, b):
             return a if perfs[a]['latency'] <= perfs[b]['latency'] else b
 
+        def is_valid_perf(perf):
+            return perf['ratio'] != np.inf
+
         for index, dps in dp_clusters.items():
             best_dp = None
             for dp in dps:
@@ -132,25 +135,20 @@ class ResultAnalyzer():
 
         dim = len(cluster_columns)
         if dim == 1:
-            raise NotImplementedError
-            x = [k for k, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf]
-            y = [perfs[v]['latency'] for v in index_to_best_dp.values() if perfs[v]['ratio'] != np.inf]
-            plt.plot(x, y)
-
-            c = np.array([perfs[v]['ratio'] for v, v in index_to_best_dp.items() if perfs[v]['ratio'] != np.inf])
+            x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            y = np.array([perfs[v]['latency'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
             cmap = matplotlib.cm.get_cmap('coolwarm')
             norm_max = max(np.abs(c.min()), np.abs(c.max()))
             norm = matplotlib.colors.Normalize(-norm_max, norm_max)
             c = cmap(norm(c.tolist()))
-            plt.scatter(x, y, marker='x', color=c)
-            plt.xlabel(cluster_columns[0])
+            plt.bar(x, y, color=c)
+            plt.xlabel(f"{cluster_columns[0]} (log)")
             plt.ylabel('total latency')
+            plt.colorbar(matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm))
 
         elif dim == 2:
             ax = plt.axes(projection='3d')
-
-            def is_valid_perf(perf):
-                return perf['ratio'] != np.inf
 
             x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
             y = np.log2([k[1] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
@@ -189,6 +187,60 @@ class ResultAnalyzer():
         plt.clf()
 
 
+    def plot_1d_topi(self, cluster_column, benchmark, wanted_layers:list): 
+        dp_clusters = self._cluster_design_points([cluster_column], dict())  # cluster_cols -> dps
+        perfs = self._init_perfs(benchmark, wanted_layers)  # dp -> perf_dict
+
+        def latency_order(dp):
+            return perfs[dp]['latency']
+
+        def dp2text(dp):
+            dp = parse_design_point(dp)
+            return f"{dp['core_num_mac']}x{dp['core_noc_bw']}"
+        
+        cluster_labels = []
+        topi_dps = []
+        topi = 4
+        norm_max = 0
+        
+        for cluster, dps in dp_clusters.items():
+            assert len(cluster) == 1
+            cluster_labels.append(str(cluster[0]))
+
+            sorted_dps = sorted(dps, key=latency_order)
+            assert len(sorted_dps) >= topi
+            topi_dps.append(sorted_dps[:topi])
+
+            norm_max = max(norm_max, max([np.abs(perfs[v]['ratio']) for v in sorted_dps[:topi]]))
+
+        cmap = matplotlib.cm.get_cmap('coolwarm')
+        norm = matplotlib.colors.Normalize(-norm_max, norm_max)
+
+        width = 0.8
+        x = np.arange(len(cluster_labels))
+        for i in range(topi):
+            cur_dps_perfs = [perfs[v[i]]['latency'] for v in topi_dps]
+            color = [perfs[v[i]]['ratio'] for v in topi_dps]
+            color = cmap(norm(color))
+            labels = [v[i] for v in topi_dps]
+            labels = [dp2text(dp) for dp in labels]
+            p = plt.bar(x - width / 2 + width / topi * i, cur_dps_perfs, width / topi * 0.8, color=color)
+            plt.bar_label(p, labels, padding=5, rotation=90.)
+        
+        plt.xlabel(f"{cluster_column}")
+        plt.xticks(x, cluster_labels)
+        plt.ylabel('total latency')
+
+        fig_title = " ".join([
+            cluster_column,
+            f"top-{topi}",
+            "-".join(wanted_layers),
+        ])
+        fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
+        plt.savefig(fig_path)
+        plt.clf()
+
+
 if __name__ == "__main__":
     design_points = parse_design_point_list(gc.design_points_path)
     design_points = [tuple(i) for i in design_points]
@@ -201,6 +253,17 @@ if __name__ == "__main__":
                 bc = yaml.load(f, Loader=yaml.FullLoader)
                 benchmark_constraints.append(bc)
         break
+
+    for bc in benchmark_constraints:
+        try:
+            for benchmark, layers in bc.items():
+                for wanted_layer in layers:
+                    analyzer.plot_1d_topi('core_buffer_size', benchmark=benchmark, wanted_layers=[wanted_layer])
+        except:
+            traceback.print_exc()
+            continue
+
+    exit(0)
 
     # for fixed buffer size, perf <- mac and noc?
     for bc, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):

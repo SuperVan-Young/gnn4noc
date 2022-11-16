@@ -15,22 +15,25 @@ def parse_design_point_list(list_path):
             design_points.append(l)
     return design_points
 
-def run_dump_config_spec(dp):
+def parse_design_point(dp):
     core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = [int(s) for s in dp]
-    config = WaferConfig(
-        core_num_mac = core_num_mac, 
-        core_buffer_bw = core_buffer_bw, 
-        core_buffer_size = core_buffer_size, 
-        core_noc_bw = core_noc_bw, 
-        core_noc_vc = core_noc_vc, 
-        core_noc_buffer_size = core_noc_buffer_size, 
-        core_array_h = core_array_h, 
-        core_array_w = core_array_w, 
-        reticle_bw = reticle_bw, 
-        reticle_array_h = reticle_array_h, 
-        reticle_array_w = reticle_array_w, 
-        wafer_mem_bw = wafer_mem_bw, 
-    )
+    return {
+        "core_num_mac":  core_num_mac, 
+        "core_buffer_bw":  core_buffer_bw, 
+        "core_buffer_size":  core_buffer_size, 
+        "core_noc_bw":  core_noc_bw, 
+        "core_noc_vc":  core_noc_vc, 
+        "core_noc_buffer_size":  core_noc_buffer_size, 
+        "core_array_h":  core_array_h, 
+        "core_array_w":  core_array_w, 
+        "reticle_bw":  reticle_bw, 
+        "reticle_array_h":  reticle_array_h, 
+        "reticle_array_w":  reticle_array_w, 
+        "wafer_mem_bw":  wafer_mem_bw, 
+    }
+
+def run_dump_config_spec(dp):
+    config = WaferConfig(**parse_design_point(dp))
     config.run(dump_benchmark=True, invoke_timeloop_mapper=False, invoke_timeloop_model=False, invoke_focus=False, predict=False)
     return
 
@@ -108,22 +111,7 @@ class WaferSearchSpace():
         if predict:
             dp_predict = []
             for dp in self.design_points:
-                #TODO: check prediction root, compare len with benchmark root
-                core_buffer_size, core_buffer_bw, core_num_mac, core_noc_bw, core_noc_vc, core_noc_buffer_size, reticle_bw, core_array_h, core_array_w, wafer_mem_bw, reticle_array_h, reticle_array_w = [int(s) for s in dp]
-                config = WaferConfig(
-                    core_num_mac = core_num_mac, 
-                    core_buffer_bw = core_buffer_bw, 
-                    core_buffer_size = core_buffer_size, 
-                    core_noc_bw = core_noc_bw, 
-                    core_noc_vc = core_noc_vc, 
-                    core_noc_buffer_size = core_noc_buffer_size, 
-                    core_array_h = core_array_h, 
-                    core_array_w = core_array_w, 
-                    reticle_bw = reticle_bw, 
-                    reticle_array_h = reticle_array_h, 
-                    reticle_array_w = reticle_array_w, 
-                    wafer_mem_bw = wafer_mem_bw, 
-                )
+                config = WaferConfig(**parse_design_point(dp))
                 layer_root = config._get_config_briefing()
                 prediction_root = os.path.join(gc.task_root, layer_root, "prediction")
                 if not os.path.exists(prediction_root):
