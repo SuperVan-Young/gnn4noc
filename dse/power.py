@@ -255,3 +255,72 @@ class PowerPredictor():
                 utilized_core_counter += core
  
         return inter_reticle_transmission
+
+class PowerAnalyzer():
+    """Breakdown of power in each part
+    """
+    def __init__(self, **kwargs) -> None:
+        self.frequency = 1e9
+        self.bitwidth = 16
+
+        self.mac_dynamic_energy = kwargs['mac_dynamic_energy']  # pJ (fp16)
+        self.mac_static_power = kwargs['mac_static_power']      # W
+        self.sram_static_power = kwargs['sram_static_power']    # W
+        self.sram_read_energy = kwargs['sram_read_energy']      # pJ/bit
+        self.sram_write_energy = kwargs['sram_write_energy']    # pJ/bit
+        self.noc_static_power = kwargs['noc_static_power']      # W
+        self.noc_channel_energy = kwargs['noc_channel_energy']  # pJ/bit
+        self.reticle_channel_energy = kwargs['reticle_channel_energy']  # pJ/bit
+        self.noc_bw = kwargs['noc_bw']
+        self.reticle_bw = kwargs['reticle_bw']
+
+    def run(self, prediction):
+        report = dict()
+
+        report['mac_dynamic'], report['mac_static'] = self.calc_mac_power(prediction)
+        report['noc_dynamic'], report['noc_static'] = self.calc_noc_power(prediction)
+        report['sram_dynamic'], report['sram_static'] = self.calc_sram_power(prediction)
+        report['inter_reticle'] = self.calc_reticle_power(prediction)
+
+        return report
+
+    def _get_total_latency(self, prediction):
+        """Get total latency of current task.
+        We only count selected layers, and normalized inter-reticle transmission's effect
+        """
+        selected_latency = np.sum([v for k, v in prediction['prediction'].items()])
+        inter_reticle_data = np.sum([v for k, v in prediction['power']['reticle'].items()])
+        inter_reticle_latency = inter_reticle_data / self.reticle_bw
+        normalized_inter_reticle_latency = inter_reticle_latency * prediction['compute_percentage']
+        return selected_latency + normalized_inter_reticle_latency
+
+
+    def calc_mac_power(self, prediction):
+        total_computation = np.sum([v for k, v in prediction['power']['mac'].items()])
+        total_latency = self._get_total_latency(prediction)
+        mac_dynamic = total_computation * self.mac_dynamic_energy / total_latency * self.frequency * 1e12  # pJ->J
+        mac_static = self.mac_static_power
+        return mac_dynamic, mac_static
+
+
+    def calc_noc_power(self, prediction):
+        total_flit = np.sum([v for k, v in prediction['power']['noc'].items()])
+        total_latency = self._get_total_latency(prediction)
+        noc_dynamic = total_flit * self.noc_bw * self.noc_channel_energy / total_latency * self.frequency * 1e12  # pJ->J
+        noc_static = self.noc_static_power
+        return noc_dynamic, noc_static
+
+    def calc_sram_power(self, prediction):
+        total_read = np.sum([v['summary']['read'] for k, v in prediction['power']['sram'].items()])
+        total_write = np.sum([v['summary']['write'] for k, v in prediction['power']['sram'].items()])
+        total_latency = self._get_total_latency(prediction)
+        sram_dynamic_read = total_read * self.sram_read_energy * self.bitwidth / total_latency * self.frequency * 1e12
+        sram_dynamic_write = total_write * self.sram_write_energy * self.bitwidth / total_latency * self.frequency * 1e12
+        sram_static = self.sram_static_power
+        return sram_dynamic_read + sram_dynamic_write, sram_static
+
+    def calc_reticle_power(self, prediction):
+        total_data = np.sum([v for k, v in prediction['power']['reticle'].items()])
+        total_latency = self._get_total_latency(prediction)
+        reticle_dynamic = total_data * self.reticle_channel_energy / total_latency * self.frequency * 1e12
+        return reticle_dynamic

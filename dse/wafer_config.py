@@ -345,6 +345,7 @@ class WaferConfig():
                     "prediction": {},
                     "computation": {},
                     "transmission": {},
+                    "compute_percentage": None,
                 }
                 for layer_name in trace_parser.graph_parser.get_layers():
                     report["prediction"][layer_name] = int(perf_predictor.run(layer_name))
@@ -358,11 +359,20 @@ class WaferConfig():
                     core_array_h = self.core_array_h,
                     core_array_w = self.core_array_w,
                 )
+                full_benchmark_path = os.path.join(self.task_root, 'benchmark_full', file)
                 power_report = power_predictor.run(
                     benchmark_path=benchmark_path,
-                    full_benchmark_path=os.path.join(self.task_root, 'benchmark_full', file),
+                    full_benchmark_path=full_benchmark_path,
                 )
                 report['power'] = power_report
+
+                # compute percentage
+                with open(full_benchmark_path, 'r') as f:
+                    full_benchmark = yaml.load(f, Loader=yaml.FullLoader)
+                assert len(full_benchmark) == 1, "WaferConfig: only support single model performance prediction"
+                for k, v in full_benchmark.items():
+                    full_benchmark_name, full_benchmark_layers = k, v
+                report['compute_percentage'] = np.sum([get_layer_num_core(l) for l in benchmark_layers]) / np.sum([get_layer_num_core(l) for l in full_benchmark_layers])
 
                 prediction_path = os.path.join(prediction_root, f"{benchmark_name}.json")
                 with open(prediction_path, "w") as f:

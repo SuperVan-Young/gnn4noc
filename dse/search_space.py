@@ -144,6 +144,6 @@ if __name__ == "__main__":
         dump_config_spec=False, 
         invoke_timeloop_mapper=False, 
         invoke_timeloop_model=False, 
-        invoke_focus=True, 
+        invoke_focus=False, 
         predict=True, 
         verbose=True, debug=True) 

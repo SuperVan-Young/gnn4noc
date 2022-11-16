@@ -156,12 +156,12 @@ class ResultAnalyzer():
             c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
             cmap = matplotlib.cm.get_cmap('coolwarm')
             norm_max = max(np.abs(c.min()), np.abs(c.max()))
-            norm = matplotlib.colors.Normalize(-norm_max, norm_max)
+            # norm = matplotlib.colors.Normalize(-norm_max, norm_max)
+            norm = matplotlib.colors.Normalize(-6, 6)
             c = cmap(norm(c.tolist()))
             if len(z):
                 ax.bar3d(x, y, 0, 0.25, 0.25, z, color=c)
 
-            print(cluster_columns, fixed_columns, wanted_layers, len(z), max(z), min(z))
             if min(z) == 0:
                 for k, v in index_to_best_dp.items():
                     if perfs[v]['latency'] == 0:
@@ -214,7 +214,8 @@ class ResultAnalyzer():
             norm_max = max(norm_max, max([np.abs(perfs[v]['ratio']) for v in sorted_dps[:topi]]))
 
         cmap = matplotlib.cm.get_cmap('coolwarm')
-        norm = matplotlib.colors.Normalize(-norm_max, norm_max)
+        # norm = matplotlib.colors.Normalize(-norm_max, norm_max)
+        norm = matplotlib.colors.Normalize(-6, 6)
 
         width = 0.8
         x = np.arange(len(cluster_labels))
@@ -258,12 +259,11 @@ if __name__ == "__main__":
         try:
             for benchmark, layers in bc.items():
                 for wanted_layer in layers:
+                    print("topi-1d", 'core_buffer_size', wanted_layer)
                     analyzer.plot_1d_topi('core_buffer_size', benchmark=benchmark, wanted_layers=[wanted_layer])
         except:
             traceback.print_exc()
             continue
-
-    exit(0)
 
     # for fixed buffer size, perf <- mac and noc?
     for bc, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):
@@ -278,6 +278,7 @@ if __name__ == "__main__":
         try:
             for benchmark, layers in bc.items():
                 for wanted_layer in layers:
+                    print(cluster_columns, fixed_columns, benchmark, wanted_layer)
                     analyzer.plot_cluster(cluster_columns, fixed_columns, benchmark=benchmark, wanted_layers=[wanted_layer])
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
@@ -297,6 +298,7 @@ if __name__ == "__main__":
         try:
             for benchmark, layers in bc.items():
                 for wanted_layer in layers:
+                    print(cluster_columns, fixed_columns, benchmark, wanted_layer)
                     analyzer.plot_cluster(cluster_columns, fixed_columns, benchmark=benchmark, wanted_layers=[wanted_layer])
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
