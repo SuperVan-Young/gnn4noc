@@ -358,16 +358,10 @@ class ResultAnalyzer():
 
             norm_max = max(norm_max, max([np.abs(perfs[v]['ratio']) for v in sorted_dps[:topi]]))
 
-        cmap = matplotlib.cm.get_cmap('coolwarm')
-        # norm = matplotlib.colors.Normalize(-norm_max, norm_max)
-        norm = matplotlib.colors.Normalize(-6, 6)
-
         width = 0.8
         x = np.arange(len(cluster_labels))
         total_powers = [np.zeros(len(x)) for i in range(topi)]
         for label in power_labels:
-            cur_handle_group = []
-
             xs = []
             ys = []
             bs = []
@@ -407,6 +401,28 @@ class ResultAnalyzer():
         plt.savefig(fig_path)
         plt.clf()
 
+    def pareto_frontier(self, benchmark, wanted_layers:list):
+        perfs = self._init_perfs(benchmark, wanted_layers)
+
+        latencies = []
+        powers = []
+
+        for dp, perf in perfs.items():
+            latencies.append(perf['latency'])
+            powers.append(perf['power']['total'])
+        
+        plt.scatter(latencies, powers)
+
+        fig_title = " ".join([
+            "pareto",
+            benchmark,
+        ])
+        plt.title(fig_title)
+
+        fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
+        plt.savefig(fig_path)
+        plt.clf()
+        
 
 if __name__ == "__main__":
     design_points = parse_design_point_list(gc.design_points_path)
@@ -446,7 +462,9 @@ if __name__ == "__main__":
         try:
             for benchmark, layers in bc.items():
                 print("plot_1d_topi_power_breakdown", benchmark)
-                analyzer.plot_1d_topi_power_breakdown('core_buffer_size', benchmark, wanted_layers=layers)
+                # analyzer.plot_1d_topi_power_breakdown('core_buffer_size', benchmark, wanted_layers=layers)
+                print("pareto frontier", benchmark)
+                analyzer.pareto_frontier(benchmark, wanted_layers=layers)
                 break
         except:
             traceback.print_exc()
