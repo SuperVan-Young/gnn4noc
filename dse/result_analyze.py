@@ -113,7 +113,7 @@ class ResultAnalyzer():
                             perfs[dp]['power'] = power_analyzer.run(a)
                     except:
                         print(f"Warning: error for {dp}, automatically filling with inf")
-                        traceback.print_exc()
+                        # traceback.print_exc()
                         perfs[dp]['latency'] = np.inf
                         perfs[dp]['ratio'] = np.inf
                         perfs[dp]['power'] = {'total': np.inf}
@@ -323,6 +323,90 @@ class ResultAnalyzer():
         plt.savefig(fig_path)
         plt.clf()
 
+    def plot_1d_topi_power_breakdown(self, cluster_column, benchmark, wanted_layers:list): 
+        dp_clusters = self._cluster_design_points([cluster_column], dict())  # cluster_cols -> dps
+        perfs = self._init_perfs(benchmark, wanted_layers)  # dp -> perf_dict
+        power_labels = [
+            'mac_dynamic',
+            'mac_static',
+            'noc_dynamic',
+            'noc_static',
+            'sram_dynamic',
+            'sram_static',
+            'inter_reticle'
+        ]
+
+        def latency_order(dp):
+            return perfs[dp]['latency']
+
+        def dp2text(dp):
+            dp = parse_design_point(dp)
+            return f"{dp['core_num_mac']}x{dp['core_noc_bw']}"
+        
+        cluster_labels = []
+        topi_dps = []
+        topi = 4
+        norm_max = 0
+        
+        for cluster, dps in dp_clusters.items():
+            assert len(cluster) == 1
+            cluster_labels.append(str(cluster[0]))
+
+            sorted_dps = sorted(dps, key=latency_order)
+            assert len(sorted_dps) >= topi
+            topi_dps.append(sorted_dps[:topi])
+
+            norm_max = max(norm_max, max([np.abs(perfs[v]['ratio']) for v in sorted_dps[:topi]]))
+
+        cmap = matplotlib.cm.get_cmap('coolwarm')
+        # norm = matplotlib.colors.Normalize(-norm_max, norm_max)
+        norm = matplotlib.colors.Normalize(-6, 6)
+
+        width = 0.8
+        x = np.arange(len(cluster_labels))
+        total_powers = [np.zeros(len(x)) for i in range(topi)]
+        for label in power_labels:
+            cur_handle_group = []
+
+            xs = []
+            ys = []
+            bs = []
+
+            for i in range(topi):
+                x_ = x - width / 2 + width / topi * i
+                y_ = np.array([perfs[v[i]]['power'][label] for v in topi_dps])
+                xs.append(x_)
+                ys.append(y_)
+                bs.append(total_powers[i].copy())
+                total_powers[i] += y_
+            
+            xs = np.concatenate(xs)
+            ys = np.concatenate(ys)
+            bottom = np.concatenate(bs)
+            p = plt.bar(xs, ys, width / topi * 0.8, bottom=bottom, label=label)
+
+            if label == power_labels[-1]:
+                dp_labels = []
+                for i in range(topi):
+                    dp_labels += [v[i] for v in topi_dps]
+                dp_labels = [dp2text(dp) for dp in dp_labels]
+                plt.bar_label(p, dp_labels, padding=5, rotation=90.)
+        
+        plt.xlabel(f"{cluster_column}")
+        plt.xticks(x, cluster_labels)
+        plt.ylabel('power (W)')
+        plt.legend()
+
+        fig_title = " ".join([
+            "power",
+            cluster_column,
+            benchmark,
+            f"top-{topi}",
+        ])
+        fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
+        plt.savefig(fig_path)
+        plt.clf()
+
 
 if __name__ == "__main__":
     design_points = parse_design_point_list(gc.design_points_path)
@@ -339,24 +423,36 @@ if __name__ == "__main__":
                 benchmark_constraints.append(bc)
         break
 
-    for bc, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):
-        cluster_columns = [
-            'core_num_mac',
-            'core_noc_bw',
-        ]
-        fixed_columns = {
-            'core_buffer_size': core_buffer_size,
-            # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
-        }
+    # for bc, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):
+    #     cluster_columns = [
+    #         'core_num_mac',
+    #         'core_noc_bw',
+    #     ]
+    #     fixed_columns = {
+    #         'core_buffer_size': core_buffer_size,
+    #         # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
+    #     }
+    #     try:
+    #         for benchmark, layers in bc.items():
+    #             print(cluster_columns, fixed_columns, benchmark)
+    #             analyzer.plot_power_breakdown(cluster_columns, fixed_columns, benchmark=benchmark)
+    #             break
+    #     except:
+    #         print(f"error: {cluster_columns} {fixed_columns}")
+    #         traceback.print_exc()
+    #         continue
+
+    for bc in benchmark_constraints:
         try:
             for benchmark, layers in bc.items():
-                print(cluster_columns, fixed_columns, benchmark)
-                analyzer.plot_power_breakdown(cluster_columns, fixed_columns, benchmark=benchmark)
+                print("plot_1d_topi_power_breakdown", benchmark)
+                analyzer.plot_1d_topi_power_breakdown('core_buffer_size', benchmark, wanted_layers=layers)
                 break
         except:
-            print(f"error: {cluster_columns} {fixed_columns}")
             traceback.print_exc()
             continue
+    
+    exit(1)
 
     for bc, core_noc_bw, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12), 2 ** np.arange(5, 12)):
         cluster_columns = [
@@ -369,15 +465,13 @@ if __name__ == "__main__":
         }
         try:
             for benchmark, layers in bc.items():
-                print(cluster_columns, fixed_columns, benchmark)
+                print("plot_power_breakdown", cluster_columns, fixed_columns, benchmark)
                 analyzer.plot_power_breakdown(cluster_columns, fixed_columns, benchmark=benchmark)
                 break
         except:
             print(f"error: {cluster_columns} {fixed_columns}")
             traceback.print_exc()
             continue
-
-    exit(1)
 
     for bc in benchmark_constraints:
         try:
