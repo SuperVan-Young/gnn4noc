@@ -38,10 +38,12 @@ timeloop_mapper_timeout = 1
 
 multiprocess_cores = 16
 
+experiment_type = "cerebras"
+
 # ---------------------- dse roots -----------------------
 dse_root = os.path.dirname(os.path.abspath(__file__))
 
-experiment_date = f"cerebras_{num_effective_model}"
+experiment_date = f"{experiment_type}_{num_effective_model}"
 # experiment_date = "test"
 
 task_root = os.path.join(dse_root, "tasks")
@@ -58,5 +60,8 @@ fig_root = os.path.join(fig_root, experiment_date)
 if not os.path.exists(fig_root):
     os.mkdir(fig_root)
 
-design_points_path = os.path.join(dse_root, "design_points", "design_points_cerebras.list")
+design_points_path = os.path.join(dse_root, "design_points", f"design_points_{experiment_type}.list")
 assert os.path.exists(design_points_path)
+
+power_table_path = os.path.join(dse_root, 'power_table', f"{experiment_type}.json")
+assert power_table_path

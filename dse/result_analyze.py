@@ -8,11 +8,13 @@ from search_space import parse_design_point_list, parse_design_point
 import traceback
 import yaml
 import itertools
+from power import PowerAnalyzer
 
 class ResultAnalyzer():
 
-    def __init__(self, design_points: list) -> None:
+    def __init__(self, design_points: list, power_table: dict) -> None:
         self.design_points = design_points
+        self.power_table = power_table
 
     def _cluster_design_points(self, cluster_columns: list, fixed_columns: dict):
         assert len(cluster_columns) <= 2, "ResultAnalyzer: only plot less than 3d graph!"
@@ -74,6 +76,11 @@ class ResultAnalyzer():
             briefing = "_".join([f"{k}{v}" for k, v in config_briefs])
             task_root = briefing
 
+            # power analyzer
+            power_analyzer = PowerAnalyzer(
+                **self.power_table[str(dp_)]
+            )
+
             benchmark_root = os.path.join(gc.task_root, task_root, "benchmark")
             assert os.path.exists(benchmark_root), f"{benchmark_root} not exists!"
             for _, _, files in os.walk(benchmark_root):
@@ -103,11 +110,13 @@ class ResultAnalyzer():
                             ratio = {k: get_ratio(pred, computation[k], transmission[k]) for k, pred in prediction.items()}
                             perfs[dp]['latency'] = np.sum(list(prediction.values())) # total latency
                             perfs[dp]['ratio'] = np.average(list(ratio.values()))  # average latency ratio (doesn't make sense for multiple layers)
+                            perfs[dp]['power'] = power_analyzer.run(a)
                     except:
-                        # print(f"Warning: error for {dp}, automatically filling with inf")
-                        # traceback.print_exc()
+                        print(f"Warning: error for {dp}, automatically filling with inf")
+                        traceback.print_exc()
                         perfs[dp]['latency'] = np.inf
                         perfs[dp]['ratio'] = np.inf
+                        perfs[dp]['power'] = {'total': np.inf}
                 break
 
         return perfs
@@ -241,11 +250,94 @@ class ResultAnalyzer():
         plt.savefig(fig_path)
         plt.clf()
 
+    def plot_power_breakdown(self, cluster_columns, fixed_columns, benchmark):
+        dp_clusters = self._cluster_design_points(cluster_columns, fixed_columns)  # cluster_cols -> dps
+        perfs = self._init_perfs(benchmark, wanted_layers=[])  # dp -> perf_dict
+        index_to_best_dp = dict()  # cluster_cols -> best dp
+        power_labels = [
+            'mac_dynamic',
+            'mac_static',
+            'noc_dynamic',
+            'noc_static',
+            'sram_dynamic',
+            'sram_static',
+            'inter_reticle'
+        ]
+
+        # for each cluster, find the best dp according to some metric
+        def get_better_dp(a, b):
+            return a if perfs[a]['power']['total'] <= perfs[b]['power']['total'] else b
+
+        def is_valid_perf(perf):
+            return perf['power']['total'] != np.inf
+
+        for index, dps in dp_clusters.items():
+            best_dp = None
+            for dp in dps:
+                if best_dp is None:
+                    best_dp = dp
+                    continue
+                best_dp = get_better_dp(best_dp, dp)
+            index_to_best_dp[index] = best_dp
+
+        dim = len(cluster_columns)
+        if dim == 1:
+            for label in power_labels:
+                x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+                y = np.array([perfs[v]['power'][label] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+                plt.bar(x, y, label=label)
+                plt.xlabel(f"{cluster_columns[0]} (log)")
+                plt.ylabel('power (W)')
+            plt.legend()
+
+        elif dim == 2:
+            raise NotImplementedError
+            ax = plt.axes(projection='3d')
+
+            x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            y = np.log2([k[1] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            z = np.array([perfs[v]['latency'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            cmap = matplotlib.cm.get_cmap('coolwarm')
+            norm_max = max(np.abs(c.min()), np.abs(c.max()))
+            # norm = matplotlib.colors.Normalize(-norm_max, norm_max)
+            norm = matplotlib.colors.Normalize(-6, 6)
+            c = cmap(norm(c.tolist()))
+            if len(z):
+                ax.bar3d(x, y, 0, 0.25, 0.25, z, color=c)
+
+            if min(z) == 0:
+                for k, v in index_to_best_dp.items():
+                    if perfs[v]['latency'] == 0:
+                        print(k, v)
+
+            ax.view_init(elev=33, azim=66)
+            ax.set_xlabel(f"{cluster_columns[0]} (log)")
+            ax.set_ylabel(f"{cluster_columns[1]} (log)")
+            plt.colorbar(matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm))
+
+        else:
+            raise RuntimeError(f"Invalid dim {dim}")
+
+        fig_title = " ".join([
+            "power",
+            "-".join(cluster_columns),
+            "-".join([f"{k}={v}" for k, v in fixed_columns.items()]),
+            benchmark,
+        ])
+        plt.title(fig_title)
+
+        fig_path = os.path.join(gc.fig_root, f"{fig_title}.png")
+        plt.savefig(fig_path)
+        plt.clf()
+
 
 if __name__ == "__main__":
     design_points = parse_design_point_list(gc.design_points_path)
     design_points = [tuple(i) for i in design_points]
-    analyzer = ResultAnalyzer(design_points)
+    with open(gc.power_table_path, 'r') as f:
+        power_table = json.load(f)
+    analyzer = ResultAnalyzer(design_points, power_table)
 
     benchmark_constraints = []
     for root, _, files in os.walk(os.path.join(gc.dse_root, 'benchmark_constraint')):
@@ -254,6 +346,27 @@ if __name__ == "__main__":
                 bc = yaml.load(f, Loader=yaml.FullLoader)
                 benchmark_constraints.append(bc)
         break
+
+    for bc, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):
+        cluster_columns = [
+            'core_num_mac',
+            # 'core_noc_bw',
+        ]
+        fixed_columns = {
+            'core_buffer_size': core_buffer_size,
+            # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
+        }
+        try:
+            for benchmark, layers in bc.items():
+                print(cluster_columns, fixed_columns, benchmark)
+                analyzer.plot_power_breakdown(cluster_columns, fixed_columns, benchmark=benchmark)
+                break
+        except:
+            print(f"error: {cluster_columns} {fixed_columns}")
+            traceback.print_exc()
+            continue
+
+    exit(1)
 
     for bc in benchmark_constraints:
         try:

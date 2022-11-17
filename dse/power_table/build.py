@@ -6,8 +6,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from search_space import parse_design_point
 
 # power constants
-MAC_DYNAMIC_ENERGY = 35.3 + 16.679       # pJ
-MAC_STATIC_POWER = (0.12 + 0.053) * 1e3  # W
+MAC_DYNAMIC_ENERGY = 35.3 + 16.679        # pJ
+MAC_STATIC_POWER = (0.12 + 0.053) * 1e-3  # W
 
 NOC_CHANNEL_FACTOR = 0.15                # pJ / bit / mm
 
@@ -32,7 +32,7 @@ def build_power_table(sram_table_path, noc_table_path, output_path):
         table['mac_dynamic_energy'] = MAC_DYNAMIC_ENERGY
         table['mac_static_power'] = MAC_STATIC_POWER
 
-        table['sram_static_power'] = sram_table[dp]['static_power']
+        table['sram_static_power'] = sram_table[dp]['static_power'] * 1e-3
         table['sram_read_energy'] = sram_table[dp]['read_power']
         table['sram_write_energy'] = sram_table[dp]['write_power']
 
@@ -46,6 +46,8 @@ def build_power_table(sram_table_path, noc_table_path, output_path):
 
         table['noc_bw'] = parsed_dp['core_noc_bw']
         table['reticle_bw'] = parsed_dp['reticle_bw']
+        table['total_cores'] = parsed_dp['core_array_h'] * parsed_dp['core_array_w'] * parsed_dp['reticle_array_h'] * parsed_dp['reticle_array_w']
+        table['core_num_mac'] = parsed_dp['core_num_mac']
 
         output_table[str(parsed_dp_list)] = table
 
