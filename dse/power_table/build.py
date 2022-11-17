@@ -6,8 +6,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from search_space import parse_design_point
 
 # power constants
-MAC_DYNAMIC_ENERGY = 35.3 + 16.679        # pJ
-MAC_STATIC_POWER = (0.12 + 0.053) * 1e-3  # W
+MAC_DYNAMIC_ENERGY = (35.3 + 16.679) * (0.75 ** 2)        # pJ
+MAC_STATIC_POWER = (0.12 + 0.053) * 1e-3 * (0.75 ** 2)  # W
 
 NOC_CHANNEL_FACTOR = 0.15                # pJ / bit / mm
 

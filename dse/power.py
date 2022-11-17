@@ -187,7 +187,7 @@ class PowerPredictor():
                 converted_mapping['GlobalBuffer_temporal']['M'],
             ])
 
-            layer_report['output']['write'] = np.prod([
+            tmp_output_size = np.prod([
                 converted_mapping['DRAM_temporal']['M'],
                 converted_mapping['DRAM_temporal']['C'],
                 converted_mapping['DRAM_temporal']['P'],
@@ -199,8 +199,8 @@ class PowerPredictor():
                 converted_mapping['GlobalBuffer_spatial']['M'],
                 converted_mapping['PEAccuBuffer_spatial']['M'],
             ])
-            layer_report['output']['read'] *= converted_mapping['GlobalBuffer_temporal']['C'] - 1
-            layer_report['output']['write'] *= converted_mapping['GlobalBuffer_temporal']['C']
+            layer_report['output']['read'] = tmp_output_size * (converted_mapping['GlobalBuffer_temporal']['C'] - 1)
+            layer_report['output']['write'] = tmp_output_size * converted_mapping['GlobalBuffer_temporal']['C']
 
             summary = {'read': 0, 'write': 0}
             for wr in summary.keys():

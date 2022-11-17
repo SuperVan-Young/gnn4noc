@@ -282,39 +282,31 @@ class ResultAnalyzer():
 
         dim = len(cluster_columns)
         if dim == 1:
+            x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+            total_power = np.zeros(len(x))
+
             for label in power_labels:
-                x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
                 y = np.array([perfs[v]['power'][label] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
-                plt.bar(x, y, label=label)
-                plt.xlabel(f"{cluster_columns[0]} (log)")
-                plt.ylabel('power (W)')
+                p = plt.bar(x, y, bottom=total_power, label=label)
+                total_power += y
+                plt.bar_label(p, y.astype(int), padding=5, label_type='center')
+            plt.xlabel(f"{cluster_columns[0]} (log)")
+            plt.ylabel('power (W)')
             plt.legend()
 
         elif dim == 2:
-            raise NotImplementedError
             ax = plt.axes(projection='3d')
-
-            x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
-            y = np.log2([k[1] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
-            z = np.array([perfs[v]['latency'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
-            c = np.array([perfs[v]['ratio'] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
-            cmap = matplotlib.cm.get_cmap('coolwarm')
-            norm_max = max(np.abs(c.min()), np.abs(c.max()))
-            # norm = matplotlib.colors.Normalize(-norm_max, norm_max)
-            norm = matplotlib.colors.Normalize(-6, 6)
-            c = cmap(norm(c.tolist()))
-            if len(z):
-                ax.bar3d(x, y, 0, 0.25, 0.25, z, color=c)
-
-            if min(z) == 0:
-                for k, v in index_to_best_dp.items():
-                    if perfs[v]['latency'] == 0:
-                        print(k, v)
+            current_height = np.zeros(len([v for v in index_to_best_dp.values() if is_valid_perf(perfs[v])]))
+            for label in power_labels:
+                x = np.log2([k[0] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+                y = np.log2([k[1] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+                z = np.array([perfs[v]['power'][label] for k, v in index_to_best_dp.items() if is_valid_perf(perfs[v])])
+                ax.bar3d(x, y, current_height, 0.25, 0.25, z, label=label, alpha=0.5)
+                current_height += z
 
             ax.view_init(elev=33, azim=66)
             ax.set_xlabel(f"{cluster_columns[0]} (log)")
             ax.set_ylabel(f"{cluster_columns[1]} (log)")
-            plt.colorbar(matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm))
 
         else:
             raise RuntimeError(f"Invalid dim {dim}")
@@ -350,9 +342,28 @@ if __name__ == "__main__":
     for bc, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12)):
         cluster_columns = [
             'core_num_mac',
-            # 'core_noc_bw',
+            'core_noc_bw',
         ]
         fixed_columns = {
+            'core_buffer_size': core_buffer_size,
+            # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
+        }
+        try:
+            for benchmark, layers in bc.items():
+                print(cluster_columns, fixed_columns, benchmark)
+                analyzer.plot_power_breakdown(cluster_columns, fixed_columns, benchmark=benchmark)
+                break
+        except:
+            print(f"error: {cluster_columns} {fixed_columns}")
+            traceback.print_exc()
+            continue
+
+    for bc, core_noc_bw, core_buffer_size in itertools.product(benchmark_constraints, 2 ** np.arange(5, 12), 2 ** np.arange(5, 12)):
+        cluster_columns = [
+            'core_num_mac',
+        ]
+        fixed_columns = {
+            'core_noc_bw': core_noc_bw,
             'core_buffer_size': core_buffer_size,
             # 'core_buffer_bw': core_buffer_bw,  # fix this equals fixing num mac ...
         }
